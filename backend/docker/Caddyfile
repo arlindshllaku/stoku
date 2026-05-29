@@ -1,0 +1,10 @@
+:8000 {
+    root * /app/public
+    encode zstd gzip
+    php_server
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
