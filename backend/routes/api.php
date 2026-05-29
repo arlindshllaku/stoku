@@ -5,6 +5,7 @@ use App\Domain\Inventory\Controllers\InventoryController;
 use App\Domain\Sales\Controllers\SalesController;
 use App\Domain\Stores\Controllers\StoreController;
 use App\Domain\Users\Controllers\AuthController;
+use App\Domain\Users\Controllers\StoreUserController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -33,6 +34,10 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('/cash/deposit', [CashController::class, 'deposit']);
                 Route::post('/cash/withdraw', [CashController::class, 'withdraw']);
                 Route::post('/cash/expense', [CashController::class, 'expense']);
+
+                Route::get('/users', [StoreUserController::class, 'index']);
+                Route::post('/users', [StoreUserController::class, 'store']);
+                Route::patch('/users/{user}/status', [StoreUserController::class, 'status']);
             });
     });
 });

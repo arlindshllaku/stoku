@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Domain\Users\Models\Permission;
 use App\Domain\Users\Models\Role;
+use App\Domain\Cash\Models\CashRegister;
+use App\Domain\Stores\Models\Store;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -43,5 +45,24 @@ class DatabaseSeeder extends Seeder
         );
 
         $admin->roles()->syncWithoutDetaching([$superAdmin->id => ['store_id' => null]]);
+
+        $store = Store::firstOrCreate(
+            ['slug' => 'dyqani-qendror'],
+            [
+                'name' => 'Dyqani Qendror',
+                'status' => 'active',
+                'currency' => 'EUR',
+                'timezone' => 'Europe/Budapest',
+                'created_by' => $admin->id,
+            ],
+        );
+
+        $store->users()->syncWithoutDetaching([$admin->id => ['status' => 'active']]);
+        $admin->roles()->syncWithoutDetaching([$storeOwner->id => ['store_id' => $store->id]]);
+
+        CashRegister::firstOrCreate(
+            ['store_id' => $store->id],
+            ['current_balance' => 0, 'opening_balance' => 0],
+        );
     }
 }
