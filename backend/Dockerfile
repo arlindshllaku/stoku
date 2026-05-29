@@ -3,6 +3,7 @@ WORKDIR /app
 
 RUN install-php-extensions \
     bcmath \
+    gd \
     intl \
     pcntl \
     pdo_pgsql \
@@ -19,6 +20,7 @@ WORKDIR /app
 
 RUN install-php-extensions \
     bcmath \
+    gd \
     intl \
     opcache \
     pcntl \
