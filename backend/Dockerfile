@@ -1,5 +1,14 @@
-FROM composer:2 AS vendor
+FROM dunglas/frankenphp:1-php8.3 AS vendor
 WORKDIR /app
+
+RUN install-php-extensions \
+    bcmath \
+    intl \
+    pcntl \
+    pdo_pgsql \
+    zip
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY composer.json ./
 RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
 COPY . .
