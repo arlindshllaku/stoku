@@ -470,6 +470,21 @@ function App() {
     setNotice('Inventari u eksportua si CSV.')
   }
 
+  async function updateInventoryStatus(itemId: number, status: string) {
+    if (!selectedStoreId) return
+
+    try {
+      await api(`${activeStorePath}/inventory/${itemId}/adjust`, {
+        body: JSON.stringify({ status, notes: 'Statusi u ndryshua nga paneli' }),
+        method: 'POST',
+      })
+      setNotice('Statusi i artikullit u përditësua.')
+      await loadStoreData()
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Përditësimi i statusit dështoi.')
+    }
+  }
+
   if (!token) {
     return <LoginScreen form={loginForm} isLoading={isLoading} onChange={setLoginForm} onSubmit={login} notice={notice} />
   }
@@ -542,10 +557,10 @@ function App() {
               <Metrics metrics={metrics} />
               <DailyCashSummary balance={Number(cash.register?.current_balance ?? 0)} cashIn={todaysCash.in} cashOut={todaysCash.out} />
               <DashboardCharts transactions={cashTransactions} weeklyCash={weeklyCash} />
-              <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
+              <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} onStatusChange={updateInventoryStatus} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
             </>
           )}
-          {activeView === 'Inventari' && <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
+          {activeView === 'Inventari' && <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} onStatusChange={updateInventoryStatus} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
           {activeView === 'Shitjet' && <SalesView inventory={inventory} sales={sales} onOpenSale={() => setModalMode('sale')} />}
           {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenExchange={() => setModalMode('exchange')} />}
           {activeView === 'Blerjet' && <PurchasesView purchases={purchases} onOpenPurchase={() => setModalMode('purchase')} />}
@@ -766,11 +781,11 @@ function DashboardCharts({ transactions, weeklyCash }: { transactions: CashTrans
   )
 }
 
-function InventoryTable({ filteredInventory, onExport, search, setStatusFilter, statusFilter }: { filteredInventory: InventoryApiItem[]; onExport: () => void; search: string; setStatusFilter: (status: string) => void; statusFilter: string }) {
+function InventoryTable({ filteredInventory, onExport, onStatusChange, search, setStatusFilter, statusFilter }: { filteredInventory: InventoryApiItem[]; onExport: () => void; onStatusChange: (itemId: number, status: string) => void; search: string; setStatusFilter: (status: string) => void; statusFilter: string }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold">Inventari</h2><p className="text-sm text-slate-500">{filteredInventory.length} artikuj {search ? `për "${search}"` : 'nga backend'}</p></div><div className="flex gap-2"><select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option>Të gjitha</option><option>Në stok</option><option>Rezervuar</option><option>Shitur</option><option>Dëmtuar</option></select><button className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={onExport} type="button"><Download size={16} />Eksporto</button></div></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">IMEI</th><th className="px-4 py-3 font-medium">Produkti</th><th className="px-4 py-3 font-medium">Ngjyra</th><th className="px-4 py-3 font-medium">Memoria</th><th className="px-4 py-3 font-medium">Kosto</th><th className="px-4 py-3 font-medium">Çmimi</th><th className="px-4 py-3 font-medium">Statusi</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredInventory.map((item) => <tr className="hover:bg-slate-50" key={item.id}><td className="px-4 py-3 font-mono text-xs text-slate-600">{item.imei ?? 'Nuk ka'}</td><td className="px-4 py-3 font-medium">{item.brand} {item.model}</td><td className="px-4 py-3">{item.color ?? '-'}</td><td className="px-4 py-3">{item.storage ?? '-'}</td><td className="px-4 py-3">{formatEuro(Number(item.purchase_price))}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(item.selling_price))}</td><td className="px-4 py-3"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">{statusLabel(item.status)}</span></td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">IMEI</th><th className="px-4 py-3 font-medium">Produkti</th><th className="px-4 py-3 font-medium">Ngjyra</th><th className="px-4 py-3 font-medium">Memoria</th><th className="px-4 py-3 font-medium">Kosto</th><th className="px-4 py-3 font-medium">Çmimi</th><th className="px-4 py-3 font-medium">Statusi</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredInventory.map((item) => <tr className="hover:bg-slate-50" key={item.id}><td className="px-4 py-3 font-mono text-xs text-slate-600">{item.imei ?? 'Nuk ka'}</td><td className="px-4 py-3 font-medium">{item.brand} {item.model}</td><td className="px-4 py-3">{item.color ?? '-'}</td><td className="px-4 py-3">{item.storage ?? '-'}</td><td className="px-4 py-3">{formatEuro(Number(item.purchase_price))}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(item.selling_price))}</td><td className="px-4 py-3"><select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700" disabled={item.status === 'sold' || item.status === 'exchanged_out'} onChange={(event) => onStatusChange(item.id, event.target.value)} value={item.status}><option value="in_stock">Në stok</option><option value="reserved">Rezervuar</option><option value="damaged">Dëmtuar</option><option value="returned">Kthyer</option>{(item.status === 'sold' || item.status === 'exchanged_out') && <option value={item.status}>{statusLabel(item.status)}</option>}</select></td></tr>)}</tbody></table></div>
     </section>
   )
 }
@@ -799,6 +814,55 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   const filteredSales = filterSalesByPeriod(sales, period, range)
   const total = filteredSales.reduce((sum, sale) => sum + Number(sale.total), 0)
   const profit = filteredSales.reduce((sum, sale) => sum + Number(sale.profit), 0)
+  const reportTitle = `Raporti i shitjeve - ${reportPeriodLabel(period)}`
+
+  function exportExcel() {
+    const rows = reportRows(filteredSales)
+    const html = `<table><thead><tr>${['Data', 'Fatura', 'Pagesa', 'Totali', 'Fitimi'].map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+    downloadBlob(blob, `raporti-shitjeve-${period}.xls`)
+  }
+
+  function exportPdf() {
+    const rows = reportRows(filteredSales)
+    const printable = window.open('', '_blank', 'width=960,height=720')
+    if (!printable) return
+
+    printable.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(reportTitle)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; }
+            h1 { font-size: 22px; margin: 0 0 6px; }
+            p { margin: 0 0 18px; color: #475569; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+            th { background: #f1f5f9; }
+            .summary { display: flex; gap: 16px; margin: 18px 0; }
+            .summary div { border: 1px solid #cbd5e1; padding: 10px 12px; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(reportTitle)}</h1>
+          <p>Gjeneruar më ${escapeHtml(new Date().toLocaleString())}</p>
+          <div class="summary">
+            <div><strong>Shitje</strong><br>${filteredSales.length}</div>
+            <div><strong>Qarkullimi</strong><br>${escapeHtml(formatEuro(total))}</div>
+            <div><strong>Fitimi</strong><br>${escapeHtml(formatEuro(profit))}</div>
+          </div>
+          <table>
+            <thead><tr>${['Data', 'Fatura', 'Pagesa', 'Totali', 'Fitimi'].map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </body>
+      </html>
+    `)
+    printable.document.close()
+    printable.focus()
+    printable.print()
+  }
 
   return (
     <section className="space-y-4">
@@ -818,6 +882,8 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
                 <input className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setRange({ ...range, to: event.target.value })} type="date" value={range.to} />
               </>
             )}
+            <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={exportExcel} type="button">Excel</button>
+            <button className="h-10 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={exportPdf} type="button">PDF</button>
           </div>
         </div>
       </div>
@@ -933,6 +999,33 @@ function storeRoleLabel(role?: string) {
 
 function inventoryOptionLabel(item: InventoryApiItem) {
   return `${item.brand} ${item.model} · IMEI: ${item.imei ?? 'Pa IMEI'} · ${formatEuro(Number(item.selling_price))}`
+}
+
+function reportPeriodLabel(period: ReportPeriod) {
+  return ({ daily: 'Ditor', weekly: 'Javor', monthly: 'Mujor', custom: 'Periudhë e personalizuar' } as Record<ReportPeriod, string>)[period]
+}
+
+function reportRows(sales: SaleApiRecord[]) {
+  return sales.map((sale) => [
+    new Date(sale.created_at).toLocaleString(),
+    sale.sale_number,
+    paymentLabel(sale.payment_method),
+    formatEuro(Number(sale.total)),
+    formatEuro(Number(sale.profit)),
+  ])
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function escapeHtml(value: string) {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 }
 
 function formatEuro(value: number) {
