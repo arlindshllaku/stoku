@@ -44,7 +44,7 @@ type SaleApiRecord = { id: number; sale_number: string; total: string; profit: s
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; created_at: string }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
-type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
+type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const navItems = [
@@ -88,7 +88,8 @@ function App() {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [storeForm, setStoreForm] = useState({ name: '', address: '', phone: '', email: '', currency: 'EUR', timezone: 'Europe/Belgrade' })
   const [inventoryForm, setInventoryForm] = useState({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
-  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee' })
+  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee', status: 'active' })
+  const [editingUser, setEditingUser] = useState<StoreUser | null>(null)
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
   const [saleForm, setSaleForm] = useState({ inventory_item_id: '', selling_price: '' })
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('daily')
@@ -291,12 +292,66 @@ function App() {
         method: 'POST',
       })
       setModalMode(null)
-      setUserForm({ name: '', email: '', password: '', role: 'employee' })
+      resetUserForm()
       setNotice(userForm.role === 'store_owner' ? 'Admini/pronari u lidh me këtë dyqan.' : 'Përdoruesi u lidh me këtë dyqan.')
       await loadStoreData()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Krijimi i përdoruesit dështoi.')
     }
+  }
+
+  async function updateUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId || !editingUser) return
+
+    try {
+      await api(`${activeStorePath}/users/${editingUser.id}`, {
+        body: JSON.stringify({
+          name: userForm.name,
+          email: userForm.email,
+          password: userForm.password || undefined,
+          role: userForm.role,
+          status: userForm.status,
+        }),
+        method: 'PUT',
+      })
+      setModalMode(null)
+      setEditingUser(null)
+      resetUserForm()
+      setNotice('Përdoruesi u përditësua.')
+      await loadStoreData()
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Përditësimi i përdoruesit dështoi.')
+    }
+  }
+
+  async function deleteUser(user: StoreUser) {
+    if (!selectedStoreId) return
+    if (!window.confirm(`A dëshiron ta heqësh qasjen për ${user.name} nga ky dyqan?`)) return
+
+    try {
+      await api(`${activeStorePath}/users/${user.id}`, { method: 'DELETE' })
+      setNotice('Përdoruesi u hoq nga ky dyqan.')
+      await loadStoreData()
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Heqja e përdoruesit dështoi.')
+    }
+  }
+
+  function openEditUser(user: StoreUser) {
+    setEditingUser(user)
+    setUserForm({
+      name: user.name,
+      email: user.email,
+      password: '',
+      role: user.roles?.find((role) => role.scope === 'store')?.name ?? 'employee',
+      status: user.status,
+    })
+    setModalMode('editUser')
+  }
+
+  function resetUserForm() {
+    setUserForm({ name: '', email: '', password: '', role: 'employee', status: 'active' })
   }
 
   async function createCashTransaction(event: FormEvent<HTMLFormElement>) {
@@ -566,7 +621,7 @@ function App() {
           {activeView === 'Blerjet' && <PurchasesView purchases={purchases} onOpenPurchase={() => setModalMode('purchase')} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={sales} setPeriod={setReportPeriod} setRange={setReportRange} />}
-          {activeView === 'Përdoruesit' && <UsersView users={users} onOpenUser={() => setModalMode('user')} />}
+          {activeView === 'Përdoruesit' && <UsersView users={users} onDeleteUser={deleteUser} onEditUser={openEditUser} onOpenUser={() => setModalMode('user')} />}
           {activeView === 'Historiku' && <InfoPanel title="Historiku" text="Audit log ruhet në backend për login, inventar, shitje, arkë dhe përdorues." />}
         </div>
       </section>
@@ -619,6 +674,32 @@ function App() {
             </label>
             <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:col-span-2">Nëse email-i ekziston, përdoruesi lidhet me këtë dyqan. Për përdorues të ri, plotëso emrin dhe fjalëkalimin.</p>
             <SubmitRow submitLabel="Ruaj përdoruesin" onCancel={() => setModalMode(null)} />
+          </form>
+        </Modal>
+      )}
+
+      {modalMode === 'editUser' && (
+        <Modal title="Edito përdorues" onClose={() => { setModalMode(null); setEditingUser(null); resetUserForm() }}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={updateUser}>
+            <Field label="Emri" value={userForm.name} onChange={(value) => setUserForm((form) => ({ ...form, name: value }))} />
+            <Field label="Email" value={userForm.email} onChange={(value) => setUserForm((form) => ({ ...form, email: value }))} />
+            <Field label="Fjalëkalimi" type="password" value={userForm.password} onChange={(value) => setUserForm((form) => ({ ...form, password: value }))} />
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Roli</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setUserForm((form) => ({ ...form, role: event.target.value }))} value={userForm.role}>
+                <option value="employee">Punëtor</option>
+                <option value="store_owner">Admin / pronar dyqani</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Statusi</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setUserForm((form) => ({ ...form, status: event.target.value }))} value={userForm.status}>
+                <option value="active">Aktiv</option>
+                <option value="inactive">Joaktiv</option>
+              </select>
+            </label>
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:col-span-2">Lëre fjalëkalimin bosh nëse nuk dëshiron ta ndryshosh.</p>
+            <SubmitRow submitLabel="Ruaj ndryshimet" onCancel={() => { setModalMode(null); setEditingUser(null); resetUserForm() }} />
           </form>
         </Modal>
       )}
@@ -959,8 +1040,8 @@ function CashView({ cash, onOpenCash }: { cash: CashState; onOpenCash: (type: st
   return <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold">Arka</h2><p className="text-sm text-slate-500">Gjendja aktuale: {formatEuro(Number(cash.register?.current_balance ?? 0))}</p></div><div className="flex gap-2"><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('deposit')} type="button">Depozitim</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('withdraw')} type="button">Tërheqje</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('expense')} type="button">Shpenzim</button></div></div></section>
 }
 
-function UsersView({ onOpenUser, users }: { onOpenUser: () => void; users: StoreUser[] }) {
-  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex items-center justify-between px-4 py-3" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><div className="flex flex-col items-end gap-1"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status}</span><span className="text-xs font-medium text-slate-500">{storeRoleLabel(user.roles?.find((role) => role.scope === 'store')?.name)}</span></div></div>)}</div></section>
+function UsersView({ onDeleteUser, onEditUser, onOpenUser, users }: { onDeleteUser: (user: StoreUser) => void; onEditUser: (user: StoreUser) => void; onOpenUser: () => void; users: StoreUser[] }) {
+  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><div className="flex flex-wrap items-center gap-2 sm:justify-end"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status === 'active' ? 'Aktiv' : 'Joaktiv'}</span><span className="text-xs font-medium text-slate-500">{storeRoleLabel(user.roles?.find((role) => role.scope === 'store')?.name)}</span><button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50" onClick={() => onEditUser(user)} type="button">Edito</button><button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50" onClick={() => onDeleteUser(user)} type="button">Hiq</button></div></div>)}</div></section>
 }
 
 function InfoPanel({ text, title }: { text: string; title: string }) {

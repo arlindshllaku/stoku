@@ -41,7 +41,9 @@ Route::prefix('v1')->group(function (): void {
 
                 Route::get('/users', [StoreUserController::class, 'index']);
                 Route::post('/users', [StoreUserController::class, 'store']);
+                Route::put('/users/{user}', [StoreUserController::class, 'update']);
                 Route::patch('/users/{user}/status', [StoreUserController::class, 'status']);
+                Route::delete('/users/{user}', [StoreUserController::class, 'destroy']);
             });
     });
 });
