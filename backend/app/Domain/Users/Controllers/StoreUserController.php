@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rules\Password;
 
 class StoreUserController extends Controller
@@ -30,18 +31,30 @@ class StoreUserController extends Controller
     public function store(Request $request, Store $store): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:160'],
-            'email' => ['required', 'email', 'max:180', 'unique:users,email'],
-            'password' => ['required', Password::min(8)],
+            'name' => ['nullable', 'string', 'max:160'],
+            'email' => ['required', 'email', 'max:180'],
+            'password' => ['nullable', Password::min(8)],
             'role' => ['required', 'in:store_owner,employee'],
         ]);
 
-        $user = User::query()->create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => $data['password'],
-            'status' => 'active',
-        ]);
+        $user = User::query()->where('email', $data['email'])->first();
+
+        if (! $user) {
+            if (empty($data['name'])) {
+                throw ValidationException::withMessages(['name' => 'Name is required for a new user.']);
+            }
+
+            if (empty($data['password'])) {
+                throw ValidationException::withMessages(['password' => 'Password is required for a new user.']);
+            }
+
+            $user = User::query()->create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => $data['password'],
+                'status' => 'active',
+            ]);
+        }
 
         $role = Role::query()->where('name', $data['role'])->where('scope', 'store')->firstOrFail();
         $store->users()->syncWithoutDetaching([$user->id => ['status' => 'active']]);

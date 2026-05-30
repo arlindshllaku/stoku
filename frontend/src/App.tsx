@@ -35,11 +35,13 @@ type InventoryApiItem = {
   selling_price: string
   status: string
 }
-type StoreUser = { id: number; name: string; email: string; status: string }
+type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
 type CashState = { register?: { current_balance: string }; transactions?: { data: CashTransaction[] } }
 type SaleApiRecord = { id: number; sale_number: string; total: string; profit: string; payment_method: string; created_at: string }
-type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | null
+type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
+type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
+type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | 'store' | null
 type SaleMode = 'cash' | 'exchange_even' | 'exchange_with_cash'
 
 const navItems = [
@@ -71,12 +73,14 @@ function App() {
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Të gjitha')
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [notice, setNotice] = useState('Kyçu për të nisur punën.')
   const [isLoading, setIsLoading] = useState(false)
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
+  const [storeForm, setStoreForm] = useState({ name: '', address: '', phone: '', email: '', currency: 'EUR', timezone: 'Europe/Belgrade' })
   const [inventoryForm, setInventoryForm] = useState({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee' })
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
@@ -100,6 +104,7 @@ function App() {
 
   const activeNav = navItems.find((item) => item.label === activeView) ?? navItems[0]
   const selectedStore = stores.find((store) => store.id === selectedStoreId)
+  const isSuperAdmin = currentUser?.roles?.some((role) => role.name === 'super_admin' && role.scope === 'platform') ?? false
 
   const filteredInventory = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -123,6 +128,7 @@ function App() {
 
   useEffect(() => {
     if (token) {
+      void loadProfile(token)
       void loadStores(token)
     }
   }, [token])
@@ -163,6 +169,7 @@ function App() {
       localStorage.setItem('stoku_token', result.token)
       setToken(result.token)
       setNotice('Kyçja u krye me sukses.')
+      await loadProfile(result.token)
       await loadStores(result.token)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Kyçja dështoi.')
@@ -174,8 +181,13 @@ function App() {
   async function loadStores(authToken = token) {
     const result = await api<{ data: StoreRecord[] }>('/stores', {}, authToken)
     setStores(result.data)
-    setSelectedStoreId((current) => current ?? result.data[0]?.id ?? null)
-    setNotice(result.data.length ? 'Të dhënat u ngarkuan nga backend.' : 'Nuk ka dyqan të krijuar. Ekzekuto db:seed ose krijo dyqan.')
+    setSelectedStoreId((current) => current && result.data.some((store) => store.id === current) ? current : result.data[0]?.id ?? null)
+    setNotice(result.data.length ? 'Të dhënat u ngarkuan nga backend.' : 'Nuk ka dyqan të krijuar. Super admin mund ta krijojë nga paneli.')
+  }
+
+  async function loadProfile(authToken = token) {
+    const result = await api<{ user: CurrentUser }>('/auth/me', {}, authToken)
+    setCurrentUser(result.user)
   }
 
   async function loadStoreData() {
@@ -222,15 +234,46 @@ function App() {
     }
   }
 
+  async function createStore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    try {
+      const store = await api<StoreRecord>('/stores', {
+        body: JSON.stringify({
+          ...storeForm,
+          address: storeForm.address || undefined,
+          phone: storeForm.phone || undefined,
+          email: storeForm.email || undefined,
+        }),
+        method: 'POST',
+      })
+      setModalMode(null)
+      setStoreForm({ name: '', address: '', phone: '', email: '', currency: 'EUR', timezone: 'Europe/Belgrade' })
+      setNotice('Dyqani u krijua. Tani mund t’i shtosh admin/pronar te Përdoruesit.')
+      await loadStores()
+      setSelectedStoreId(store.id)
+      setActiveView('Përdoruesit')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Krijimi i dyqanit dështoi.')
+    }
+  }
+
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedStoreId) return
 
     try {
-      await api(`${activeStorePath}/users`, { body: JSON.stringify(userForm), method: 'POST' })
+      await api(`${activeStorePath}/users`, {
+        body: JSON.stringify({
+          ...userForm,
+          name: userForm.name || undefined,
+          password: userForm.password || undefined,
+        }),
+        method: 'POST',
+      })
       setModalMode(null)
       setUserForm({ name: '', email: '', password: '', role: 'employee' })
-      setNotice('Përdoruesi u krijua dhe u lidh me dyqanin.')
+      setNotice(userForm.role === 'store_owner' ? 'Admini/pronari u lidh me këtë dyqan.' : 'Përdoruesi u lidh me këtë dyqan.')
       await loadStoreData()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Krijimi i përdoruesit dështoi.')
@@ -336,6 +379,7 @@ function App() {
     setStores([])
     setInventory([])
     setUsers([])
+    setCurrentUser(null)
     setNotice('Dolët nga sistemi.')
   }
 
@@ -398,6 +442,12 @@ function App() {
                 <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setSelectedStoreId(Number(event.target.value))} value={selectedStoreId ?? ''}>
                   {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                 </select>
+                {isSuperAdmin && (
+                  <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={() => setModalMode('store')} type="button">
+                    <Store size={17} />
+                    Dyqan i ri
+                  </button>
+                )}
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={17} />
                   <input className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-600 sm:w-56" onChange={(event) => setSearch(event.target.value)} placeholder="Kërko IMEI ose model" value={search} />
@@ -450,8 +500,22 @@ function App() {
         </Modal>
       )}
 
+      {modalMode === 'store' && (
+        <Modal title="Krijo dyqan të ri" onClose={() => setModalMode(null)}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStore}>
+            <Field label="Emri i dyqanit" value={storeForm.name} onChange={(value) => setStoreForm((form) => ({ ...form, name: value }))} />
+            <Field label="Adresa" value={storeForm.address} onChange={(value) => setStoreForm((form) => ({ ...form, address: value }))} />
+            <Field label="Telefoni" value={storeForm.phone} onChange={(value) => setStoreForm((form) => ({ ...form, phone: value }))} />
+            <Field label="Email i dyqanit" type="email" value={storeForm.email} onChange={(value) => setStoreForm((form) => ({ ...form, email: value }))} />
+            <Field label="Valuta" value={storeForm.currency} onChange={(value) => setStoreForm((form) => ({ ...form, currency: value.toUpperCase().slice(0, 3) }))} />
+            <Field label="Zona kohore" value={storeForm.timezone} onChange={(value) => setStoreForm((form) => ({ ...form, timezone: value }))} />
+            <SubmitRow submitLabel="Krijo dyqanin" onCancel={() => setModalMode(null)} />
+          </form>
+        </Modal>
+      )}
+
       {modalMode === 'user' && (
-        <Modal title="Shto përdorues" onClose={() => setModalMode(null)}>
+        <Modal title="Shto ose lidh përdorues" onClose={() => setModalMode(null)}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createUser}>
             <Field label="Emri" value={userForm.name} onChange={(value) => setUserForm((form) => ({ ...form, name: value }))} />
             <Field label="Email" value={userForm.email} onChange={(value) => setUserForm((form) => ({ ...form, email: value }))} />
@@ -460,9 +524,10 @@ function App() {
               <span className="font-medium text-slate-700">Roli</span>
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setUserForm((form) => ({ ...form, role: event.target.value }))} value={userForm.role}>
                 <option value="employee">Punëtor</option>
-                <option value="store_owner">Pronar dyqani</option>
+                <option value="store_owner">Admin / pronar dyqani</option>
               </select>
             </label>
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:col-span-2">Nëse email-i ekziston, përdoruesi lidhet me këtë dyqan. Për përdorues të ri, plotëso emrin dhe fjalëkalimin.</p>
             <SubmitRow submitLabel="Ruaj përdoruesin" onCancel={() => setModalMode(null)} />
           </form>
         </Modal>
@@ -685,7 +750,7 @@ function CashView({ cash, onOpenCash }: { cash: CashState; onOpenCash: (type: st
 }
 
 function UsersView({ onOpenUser, users }: { onOpenUser: () => void; users: StoreUser[] }) {
-  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex items-center justify-between px-4 py-3" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status}</span></div>)}</div></section>
+  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex items-center justify-between px-4 py-3" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><div className="flex flex-col items-end gap-1"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status}</span><span className="text-xs font-medium text-slate-500">{storeRoleLabel(user.roles?.find((role) => role.scope === 'store')?.name)}</span></div></div>)}</div></section>
 }
 
 function InfoPanel({ text, title }: { text: string; title: string }) {
@@ -697,7 +762,7 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
 }
 
 function Field({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) {
-  const optionalLabels = ['IMEI', 'Shënim', 'Ngjyra', 'Memoria', 'Vlera e telefonit që del']
+  const optionalLabels = ['IMEI', 'Shënim', 'Ngjyra', 'Memoria', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit']
 
   return <label className="space-y-1 text-sm"><span className="font-medium text-slate-700">{label}</span><input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => onChange(event.target.value)} required={!optionalLabels.includes(label)} type={type} value={value} /></label>
 }
@@ -716,6 +781,10 @@ function cashTypeLabel(type: string) {
 
 function paymentLabel(method: string) {
   return ({ cash: 'Cash', card: 'Kartelë', mixed: 'E përzier', other: 'Tjetër' } as Record<string, string>)[method] ?? method
+}
+
+function storeRoleLabel(role?: string) {
+  return ({ store_owner: 'Admin/pronar dyqani', employee: 'Punëtor' } as Record<string, string>)[role ?? ''] ?? 'Pa rol'
 }
 
 function formatEuro(value: number) {
