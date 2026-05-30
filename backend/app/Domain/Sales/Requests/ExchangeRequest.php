@@ -27,8 +27,8 @@ class ExchangeRequest extends FormRequest
             'incoming_item.model' => ['required', 'string', 'max:160'],
             'incoming_item.color' => ['nullable', 'string', 'max:80'],
             'incoming_item.storage' => ['nullable', 'string', 'max:80'],
-            'incoming_item.purchase_price' => ['required', 'numeric', 'min:0'],
-            'incoming_item.selling_price' => ['required', 'numeric', 'min:0'],
+            'incoming_item.purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'incoming_item.selling_price' => ['nullable', 'numeric', 'min:0'],
             'incoming_item.notes' => ['nullable', 'string'],
         ];
     }

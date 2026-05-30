@@ -5,7 +5,9 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
+  BarChart3,
   Boxes,
+  CalendarDays,
   CircleDollarSign,
   Download,
   HandCoins,
@@ -42,7 +44,8 @@ type SaleApiRecord = { id: number; sale_number: string; total: string; profit: s
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
 type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | 'store' | null
-type SaleMode = 'cash' | 'exchange_even' | 'exchange_with_cash'
+type SaleMode = 'cash' | 'exchange_with_cash'
+type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Paneli', description: 'Pamje e përgjithshme e dyqanit' },
@@ -50,6 +53,7 @@ const navItems = [
   { icon: ReceiptText, label: 'Shitjet', description: 'Regjistro shitje normale' },
   { icon: Repeat2, label: 'Ndërrimet', description: 'Menaxho trade-in dhe diferenca pagese' },
   { icon: Banknote, label: 'Arka', description: 'Depozitime, tërheqje dhe shpenzime' },
+  { icon: BarChart3, label: 'Raportet', description: 'Shitjet ditore, javore, mujore dhe periudha të zgjedhura' },
   { icon: Users, label: 'Përdoruesit', description: 'Rolet dhe stafi i dyqanit' },
   { icon: ShieldCheck, label: 'Historiku', description: 'Historiku i veprimeve kryesore' },
 ]
@@ -86,6 +90,8 @@ function App() {
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
   const [saleMode, setSaleMode] = useState<SaleMode>('cash')
   const [saleForm, setSaleForm] = useState({ inventory_item_id: '', selling_price: '' })
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('daily')
+  const [reportRange, setReportRange] = useState({ from: todayInputValue(), to: todayInputValue() })
   const [exchangeForm, setExchangeForm] = useState({
     outgoing_item_id: '',
     cash_difference: '',
@@ -197,7 +203,7 @@ function App() {
         api<{ data: Array<InventoryApiItem> }>(`${activeStorePath}/inventory?per_page=100`),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`),
         api<CashState>(`${activeStorePath}/cash?per_page=100`),
-        api<{ data: Array<SaleApiRecord> }>(`${activeStorePath}/sales?per_page=100`),
+        api<{ data: Array<SaleApiRecord> }>(`${activeStorePath}/sales?per_page=500`),
       ])
       setInventory(inventoryResult.data)
       setUsers(usersResult.data)
@@ -218,8 +224,8 @@ function App() {
       await api(`${activeStorePath}/inventory`, {
         body: JSON.stringify({
           ...inventoryForm,
-          purchase_price: Number(inventoryForm.purchase_price),
-          selling_price: Number(inventoryForm.selling_price),
+          purchase_price: inventoryForm.purchase_price ? Number(inventoryForm.purchase_price) : undefined,
+          selling_price: inventoryForm.selling_price ? Number(inventoryForm.selling_price) : undefined,
           status: 'in_stock',
         }),
         method: 'POST',
@@ -305,12 +311,11 @@ function App() {
 
     try {
       if (saleMode !== 'cash') {
-        const isEvenExchange = saleMode === 'exchange_even'
         await api(`${activeStorePath}/sales/exchange`, {
           body: JSON.stringify({
             outgoing_item_id: Number(exchangeForm.outgoing_item_id),
-            cash_difference: isEvenExchange ? 0 : Number(exchangeForm.cash_difference || 0),
-            cash_direction: isEvenExchange ? 'none' : exchangeForm.cash_direction,
+            cash_difference: Number(exchangeForm.cash_difference || 0),
+            cash_direction: exchangeForm.cash_direction,
             estimated_incoming_value: exchangeForm.estimated_incoming_value ? Number(exchangeForm.estimated_incoming_value) : undefined,
             outgoing_sale_value: exchangeForm.outgoing_sale_value ? Number(exchangeForm.outgoing_sale_value) : undefined,
             notes: exchangeForm.notes || undefined,
@@ -320,8 +325,8 @@ function App() {
               imei: exchangeForm.incoming_imei || undefined,
               color: exchangeForm.incoming_color || undefined,
               storage: exchangeForm.incoming_storage || undefined,
-              purchase_price: Number(exchangeForm.incoming_purchase_price),
-              selling_price: Number(exchangeForm.incoming_selling_price),
+              purchase_price: exchangeForm.incoming_purchase_price ? Number(exchangeForm.incoming_purchase_price) : undefined,
+              selling_price: exchangeForm.incoming_selling_price ? Number(exchangeForm.incoming_selling_price) : undefined,
               notes: exchangeForm.notes || undefined,
             },
           }),
@@ -329,7 +334,7 @@ function App() {
         })
         setModalMode(null)
         resetSaleForms()
-        setNotice(isEvenExchange ? 'Ndërrimi kokë më kokë u regjistrua dhe stoku u përditësua.' : 'Ndërrimi me diferencë cash u regjistrua dhe arka/stoku u përditësuan.')
+        setNotice('Blerja me cash u regjistrua dhe arka/stoku u përditësuan.')
         await loadStoreData()
         setActiveView('Ndërrimet')
         return
@@ -475,8 +480,9 @@ function App() {
           {activeView === 'Inventari' && <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
           {activeView === 'Shitjet' && <SalesView inventory={inventory} sales={sales} onOpenSale={() => { setSaleMode('cash'); setModalMode('sale') }} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
+          {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={sales} setPeriod={setReportPeriod} setRange={setReportRange} />}
           {activeView === 'Përdoruesit' && <UsersView users={users} onOpenUser={() => setModalMode('user')} />}
-          {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenEvenExchange={() => { setSaleMode('exchange_even'); setModalMode('sale') }} onOpenPaidExchange={() => { setSaleMode('exchange_with_cash'); setModalMode('sale') }} />}
+          {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenPaidExchange={() => { setSaleMode('exchange_with_cash'); setModalMode('sale') }} />}
           {activeView === 'Historiku' && <InfoPanel title="Historiku" text="Audit log ruhet në backend për login, inventar, shitje, arkë dhe përdorues." />}
         </div>
       </section>
@@ -557,8 +563,7 @@ function App() {
             <div className="grid gap-2 sm:grid-cols-3">
               {[
                 ['cash', 'Vetëm shitje', 'Artikulli shitet dhe del nga stoku.'],
-                ['exchange_even', 'Këmbim kokë më kokë', 'Del një telefon, hyn një tjetër, pa para.'],
-                ['exchange_with_cash', 'Këmbim me cash', 'Ndërrim me pagesë nga klienti ose dyqani.'],
+                ['exchange_with_cash', 'Blerje me cash', 'Dyqani merr telefon nga klienti dhe regjistron diferencën cash.'],
               ].map(([mode, label, description]) => (
                 <button className={`rounded-md border p-3 text-left text-sm ${saleMode === mode ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-slate-200 hover:bg-slate-50'}`} key={mode} onClick={() => setSaleMode(mode as SaleMode)} type="button">
                   <span className="font-semibold">{label}</span>
@@ -573,7 +578,7 @@ function App() {
                   <span className="font-medium text-slate-700">Artikulli</span>
                   <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
                     <option value="">Zgjidh artikullin</option>
-                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{item.brand} {item.model} - {formatEuro(Number(item.selling_price))}</option>)}
+                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
                   </select>
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -590,7 +595,7 @@ function App() {
                   <span className="font-medium text-slate-700">Telefoni që del nga stoku</span>
                   <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, outgoing_item_id: event.target.value }))} required value={exchangeForm.outgoing_item_id}>
                     <option value="">Zgjidh artikullin</option>
-                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{item.brand} {item.model} - {formatEuro(Number(item.selling_price))}</option>)}
+                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
                   </select>
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -618,7 +623,7 @@ function App() {
                 <Field label="Shënim" value={exchangeForm.notes} onChange={(value) => setExchangeForm((form) => ({ ...form, notes: value }))} />
               </>
             )}
-            <SubmitRow submitLabel={saleMode === 'cash' ? 'Regjistro shitjen' : 'Regjistro ndërrimin'} onCancel={() => setModalMode(null)} />
+            <SubmitRow submitLabel={saleMode === 'cash' ? 'Regjistro shitjen' : 'Regjistro blerjen'} onCancel={() => setModalMode(null)} />
           </form>
         </Modal>
       )}
@@ -717,17 +722,63 @@ function SalesView({ inventory, onOpenSale, sales }: { inventory: InventoryApiIt
   )
 }
 
-function ExchangeView({ inventory, onOpenEvenExchange, onOpenPaidExchange }: { inventory: InventoryApiItem[]; onOpenEvenExchange: () => void; onOpenPaidExchange: () => void }) {
+function ReportsView({ period, range, sales, setPeriod, setRange }: { period: ReportPeriod; range: { from: string; to: string }; sales: SaleApiRecord[]; setPeriod: (period: ReportPeriod) => void; setRange: (range: { from: string; to: string }) => void }) {
+  const filteredSales = filterSalesByPeriod(sales, period, range)
+  const total = filteredSales.reduce((sum, sale) => sum + Number(sale.total), 0)
+  const profit = filteredSales.reduce((sum, sale) => sum + Number(sale.profit), 0)
+
+  return (
+    <section className="space-y-4">
+      <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div><h2 className="text-base font-semibold">Raportet e shitjeve</h2><p className="text-sm text-slate-500">Filtro shitjet sipas ditës, javës, muajit ose periudhës së personalizuar.</p></div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setPeriod(event.target.value as ReportPeriod)} value={period}>
+              <option value="daily">Ditore</option>
+              <option value="weekly">Javore</option>
+              <option value="monthly">Mujore</option>
+              <option value="custom">Periudhë e personalizuar</option>
+            </select>
+            {period === 'custom' && (
+              <>
+                <input className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setRange({ ...range, from: event.target.value })} type="date" value={range.from} />
+                <input className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setRange({ ...range, to: event.target.value })} type="date" value={range.to} />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      <section className="grid gap-3 md:grid-cols-3">
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Shitje</p><strong className="mt-2 block text-2xl font-semibold">{filteredSales.length}</strong></article>
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Qarkullimi</p><strong className="mt-2 block text-2xl font-semibold">{formatEuro(total)}</strong></article>
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Fitimi</p><strong className="mt-2 block text-2xl font-semibold">{formatEuro(profit)}</strong></article>
+      </section>
+      <section className="rounded-md border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center gap-2 border-b px-4 py-3"><CalendarDays className="text-slate-400" size={18} /><h2 className="text-base font-semibold">Detajet</h2></div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left text-sm">
+            <thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">Data</th><th className="px-4 py-3 font-medium">Fatura</th><th className="px-4 py-3 font-medium">Pagesa</th><th className="px-4 py-3 font-medium">Totali</th><th className="px-4 py-3 font-medium">Fitimi</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredSales.map((sale) => <tr key={sale.id}><td className="px-4 py-3">{new Date(sale.created_at).toLocaleString()}</td><td className="px-4 py-3 font-medium">{sale.sale_number}</td><td className="px-4 py-3">{paymentLabel(sale.payment_method)}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(sale.total))}</td><td className="px-4 py-3 text-emerald-700">{formatEuro(Number(sale.profit))}</td></tr>)}
+              {!filteredSales.length && <tr><td className="px-4 py-6 text-slate-500" colSpan={5}>Nuk ka shitje për këtë periudhë.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  )
+}
+
+function ExchangeView({ inventory, onOpenPaidExchange }: { inventory: InventoryApiItem[]; onOpenPaidExchange: () => void }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md bg-blue-50 text-blue-700"><Repeat2 size={20} /></div>
-          <div><h2 className="text-base font-semibold">Ndërrimet</h2><p className="text-sm text-slate-500">Regjistro telefonin që del dhe atë që hyn në stok.</p></div>
+          <div><h2 className="text-base font-semibold">Blerje nga klienti</h2><p className="text-sm text-slate-500">Regjistro telefonin që del, telefonin që hyn dhe diferencën cash.</p></div>
         </div>
         <div className="mt-4 grid gap-2">
-          <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" onClick={onOpenEvenExchange} type="button"><Repeat2 size={16} />Këmbim kokë më kokë</button>
-          <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenPaidExchange} type="button"><HandCoins size={16} />Këmbim me cash</button>
+          <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenPaidExchange} type="button"><HandCoins size={16} />Blerje me cash</button>
         </div>
       </article>
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
@@ -735,7 +786,7 @@ function ExchangeView({ inventory, onOpenEvenExchange, onOpenPaidExchange }: { i
         <div className="mt-3 divide-y">
           {inventory.filter((item) => item.status === 'in_stock').slice(0, 6).map((item) => (
             <div className="flex items-center justify-between gap-3 py-3" key={item.id}>
-              <div><p className="font-medium">{item.brand} {item.model}</p><p className="text-sm text-slate-500">{item.imei ?? 'Pa IMEI'} · {item.storage ?? '-'}</p></div>
+              <div><p className="font-medium">{item.brand} {item.model}</p><p className="text-sm text-slate-500">IMEI: {item.imei ?? 'Pa IMEI'} · {item.storage ?? '-'}</p></div>
               <p className="font-semibold">{formatEuro(Number(item.selling_price))}</p>
             </div>
           ))}
@@ -762,7 +813,7 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
 }
 
 function Field({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) {
-  const optionalLabels = ['IMEI', 'Shënim', 'Ngjyra', 'Memoria', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit']
+  const optionalLabels = ['IMEI', 'Shënim', 'Ngjyra', 'Memoria', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit', 'Çmimi i blerjes', 'Çmimi i shitjes', 'Vlera e blerjes hyrëse', 'Çmimi i shitjes hyrëse']
 
   return <label className="space-y-1 text-sm"><span className="font-medium text-slate-700">{label}</span><input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => onChange(event.target.value)} required={!optionalLabels.includes(label)} type={type} value={value} /></label>
 }
@@ -787,8 +838,16 @@ function storeRoleLabel(role?: string) {
   return ({ store_owner: 'Admin/pronar dyqani', employee: 'Punëtor' } as Record<string, string>)[role ?? ''] ?? 'Pa rol'
 }
 
+function inventoryOptionLabel(item: InventoryApiItem) {
+  return `${item.brand} ${item.model} · IMEI: ${item.imei ?? 'Pa IMEI'} · ${formatEuro(Number(item.selling_price))}`
+}
+
 function formatEuro(value: number) {
   return new Intl.NumberFormat('de-DE', { currency: 'EUR', maximumFractionDigits: 0, style: 'currency' }).format(value)
+}
+
+function todayInputValue() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function isToday(value: string) {
@@ -833,6 +892,45 @@ function sumCashForDate(transactions: CashTransaction[], date: Date, direction: 
 
     return sameDay && transaction.direction === direction ? total + Number(transaction.amount) : total
   }, 0)
+}
+
+function filterSalesByPeriod(sales: SaleApiRecord[], period: ReportPeriod, range: { from: string; to: string }) {
+  const now = new Date()
+  const start = new Date(now)
+  const end = new Date(now)
+
+  if (period === 'daily') {
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  }
+
+  if (period === 'weekly') {
+    const day = now.getDay() || 7
+    start.setDate(now.getDate() - day + 1)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  }
+
+  if (period === 'monthly') {
+    start.setDate(1)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  }
+
+  if (period === 'custom') {
+    const customStart = new Date(`${range.from}T00:00:00`)
+    const customEnd = new Date(`${range.to}T23:59:59`)
+
+    return sales.filter((sale) => {
+      const saleDate = new Date(sale.created_at)
+      return saleDate >= customStart && saleDate <= customEnd
+    })
+  }
+
+  return sales.filter((sale) => {
+    const saleDate = new Date(sale.created_at)
+    return saleDate >= start && saleDate <= end
+  })
 }
 
 export default App

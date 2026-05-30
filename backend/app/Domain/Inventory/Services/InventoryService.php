@@ -18,6 +18,9 @@ class InventoryService
     public function create(Store $store, array $data, User $user, ?string $movementType = 'purchase'): InventoryItem
     {
         return DB::transaction(function () use ($store, $data, $user, $movementType): InventoryItem {
+            $data['purchase_price'] = $data['purchase_price'] ?? 0;
+            $data['selling_price'] = $data['selling_price'] ?? 0;
+
             $item = InventoryItem::query()->create([
                 ...$data,
                 'store_id' => $store->id,
