@@ -293,7 +293,13 @@ function App() {
       })
       setModalMode(null)
       resetUserForm()
-      setNotice(userForm.role === 'store_owner' ? 'Admini/pronari u lidh me këtë dyqan.' : 'Përdoruesi u lidh me këtë dyqan.')
+      setNotice(
+        userForm.role === 'super_admin'
+          ? 'Super admini u ruajt në platformë.'
+          : userForm.role === 'store_owner'
+            ? 'Admini/pronari u lidh me këtë dyqan.'
+            : 'Përdoruesi u lidh me këtë dyqan.',
+      )
       await loadStoreData()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Krijimi i përdoruesit dështoi.')
@@ -327,11 +333,16 @@ function App() {
 
   async function deleteUser(user: StoreUser) {
     if (!selectedStoreId) return
-    if (!window.confirm(`A dëshiron ta heqësh qasjen për ${user.name} nga ky dyqan?`)) return
+    const role = userRoleValue(user)
+    const message = role === 'super_admin'
+      ? `A dëshiron t'ia heqësh rolin Super admin përdoruesit ${user.name}?`
+      : `A dëshiron ta heqësh qasjen për ${user.name} nga ky dyqan?`
+
+    if (!window.confirm(message)) return
 
     try {
       await api(`${activeStorePath}/users/${user.id}`, { method: 'DELETE' })
-      setNotice('Përdoruesi u hoq nga ky dyqan.')
+      setNotice(role === 'super_admin' ? 'Roli Super admin u hoq.' : 'Përdoruesi u hoq nga ky dyqan.')
       await loadStoreData()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Heqja e përdoruesit dështoi.')
@@ -344,7 +355,7 @@ function App() {
       name: user.name,
       email: user.email,
       password: '',
-      role: user.roles?.find((role) => role.scope === 'store')?.name ?? 'employee',
+      role: userRoleValue(user),
       status: user.status,
     })
     setModalMode('editUser')
@@ -670,6 +681,7 @@ function App() {
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setUserForm((form) => ({ ...form, role: event.target.value }))} value={userForm.role}>
                 <option value="employee">Punëtor</option>
                 <option value="store_owner">Admin / pronar dyqani</option>
+                {isSuperAdmin && <option value="super_admin">Super admin</option>}
               </select>
             </label>
             <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:col-span-2">Nëse email-i ekziston, përdoruesi lidhet me këtë dyqan. Për përdorues të ri, plotëso emrin dhe fjalëkalimin.</p>
@@ -689,6 +701,7 @@ function App() {
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setUserForm((form) => ({ ...form, role: event.target.value }))} value={userForm.role}>
                 <option value="employee">Punëtor</option>
                 <option value="store_owner">Admin / pronar dyqani</option>
+                {isSuperAdmin && <option value="super_admin">Super admin</option>}
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -1041,7 +1054,7 @@ function CashView({ cash, onOpenCash }: { cash: CashState; onOpenCash: (type: st
 }
 
 function UsersView({ onDeleteUser, onEditUser, onOpenUser, users }: { onDeleteUser: (user: StoreUser) => void; onEditUser: (user: StoreUser) => void; onOpenUser: () => void; users: StoreUser[] }) {
-  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><div className="flex flex-wrap items-center gap-2 sm:justify-end"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status === 'active' ? 'Aktiv' : 'Joaktiv'}</span><span className="text-xs font-medium text-slate-500">{storeRoleLabel(user.roles?.find((role) => role.scope === 'store')?.name)}</span><button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50" onClick={() => onEditUser(user)} type="button">Edito</button><button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50" onClick={() => onDeleteUser(user)} type="button">Hiq</button></div></div>)}</div></section>
+  return <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="text-base font-semibold">Përdoruesit</h2><p className="text-sm text-slate-500">{users.length} përdorues në dyqan/platformë.</p></div><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenUser} type="button">Shto përdorues</button></div><div className="divide-y">{users.map((user) => <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" key={user.id}><div><p className="font-medium">{user.name}</p><p className="text-sm text-slate-500">{user.email}</p></div><div className="flex flex-wrap items-center gap-2 sm:justify-end"><span className="rounded-md bg-slate-100 px-2 py-1 text-xs">{user.status === 'active' ? 'Aktiv' : 'Joaktiv'}</span><span className="text-xs font-medium text-slate-500">{roleLabel(userRoleValue(user))}</span><button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50" onClick={() => onEditUser(user)} type="button">Edito</button><button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50" onClick={() => onDeleteUser(user)} type="button">Hiq</button></div></div>)}</div></section>
 }
 
 function InfoPanel({ text, title }: { text: string; title: string }) {
@@ -1074,8 +1087,16 @@ function paymentLabel(method: string) {
   return ({ cash: 'Cash', card: 'Kartelë', mixed: 'E përzier', other: 'Tjetër' } as Record<string, string>)[method] ?? method
 }
 
-function storeRoleLabel(role?: string) {
-  return ({ store_owner: 'Admin/pronar dyqani', employee: 'Punëtor' } as Record<string, string>)[role ?? ''] ?? 'Pa rol'
+function userRoleValue(user: StoreUser) {
+  if (user.roles?.some((role) => role.name === 'super_admin' && role.scope === 'platform')) {
+    return 'super_admin'
+  }
+
+  return user.roles?.find((role) => role.scope === 'store')?.name ?? 'employee'
+}
+
+function roleLabel(role?: string) {
+  return ({ super_admin: 'Super admin', store_owner: 'Admin/pronar dyqani', employee: 'Punëtor' } as Record<string, string>)[role ?? ''] ?? 'Pa rol'
 }
 
 function inventoryOptionLabel(item: InventoryApiItem) {
