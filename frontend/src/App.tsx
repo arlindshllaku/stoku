@@ -41,17 +41,18 @@ type StoreUser = { id: number; name: string; email: string; status: string; role
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
 type CashState = { register?: { current_balance: string }; transactions?: { data: CashTransaction[] } }
 type SaleApiRecord = { id: number; sale_number: string; total: string; profit: string; payment_method: string; created_at: string }
+type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; created_at: string }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
-type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | 'store' | null
-type SaleMode = 'cash' | 'exchange_with_cash'
+type ModalMode = 'inventory' | 'user' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Paneli', description: 'Pamje e përgjithshme e dyqanit' },
   { icon: Boxes, label: 'Inventari', description: 'Kërko, filtro dhe shto artikuj' },
-  { icon: ReceiptText, label: 'Shitjet', description: 'Regjistro shitje normale' },
+  { icon: ReceiptText, label: 'Shitjet', description: 'Shitje të telefonave nga stoku te klienti' },
   { icon: Repeat2, label: 'Ndërrimet', description: 'Menaxho trade-in dhe diferenca pagese' },
+  { icon: HandCoins, label: 'Blerjet', description: 'Telefona që klientët ia shesin dyqanit' },
   { icon: Banknote, label: 'Arka', description: 'Depozitime, tërheqje dhe shpenzime' },
   { icon: BarChart3, label: 'Raportet', description: 'Shitjet ditore, javore, mujore dhe periudha të zgjedhura' },
   { icon: Users, label: 'Përdoruesit', description: 'Rolet dhe stafi i dyqanit' },
@@ -77,6 +78,7 @@ function App() {
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
+  const [purchases, setPurchases] = useState<PurchaseApiRecord[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Të gjitha')
@@ -88,7 +90,6 @@ function App() {
   const [inventoryForm, setInventoryForm] = useState({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee' })
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
-  const [saleMode, setSaleMode] = useState<SaleMode>('cash')
   const [saleForm, setSaleForm] = useState({ inventory_item_id: '', selling_price: '' })
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('daily')
   const [reportRange, setReportRange] = useState({ from: todayInputValue(), to: todayInputValue() })
@@ -106,6 +107,16 @@ function App() {
     incoming_storage: '',
     incoming_purchase_price: '',
     incoming_selling_price: '',
+  })
+  const [purchaseForm, setPurchaseForm] = useState({
+    purchase_price: '',
+    expected_selling_price: '',
+    notes: '',
+    incoming_brand: '',
+    incoming_model: '',
+    incoming_imei: '',
+    incoming_color: '',
+    incoming_storage: '',
   })
 
   const activeNav = navItems.find((item) => item.label === activeView) ?? navItems[0]
@@ -199,16 +210,18 @@ function App() {
   async function loadStoreData() {
     setIsLoading(true)
     try {
-      const [inventoryResult, usersResult, cashResult, salesResult] = await Promise.all([
+      const [inventoryResult, usersResult, cashResult, salesResult, purchasesResult] = await Promise.all([
         api<{ data: Array<InventoryApiItem> }>(`${activeStorePath}/inventory?per_page=100`),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`),
         api<CashState>(`${activeStorePath}/cash?per_page=100`),
         api<{ data: Array<SaleApiRecord> }>(`${activeStorePath}/sales?per_page=500`),
+        api<{ data: Array<PurchaseApiRecord> }>(`${activeStorePath}/purchases?per_page=100`),
       ])
       setInventory(inventoryResult.data)
       setUsers(usersResult.data)
       setCash(cashResult)
       setSales(salesResult.data)
+      setPurchases(purchasesResult.data)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
     } finally {
@@ -310,36 +323,6 @@ function App() {
     if (!selectedStoreId) return
 
     try {
-      if (saleMode !== 'cash') {
-        await api(`${activeStorePath}/sales/exchange`, {
-          body: JSON.stringify({
-            outgoing_item_id: Number(exchangeForm.outgoing_item_id),
-            cash_difference: Number(exchangeForm.cash_difference || 0),
-            cash_direction: exchangeForm.cash_direction,
-            estimated_incoming_value: exchangeForm.estimated_incoming_value ? Number(exchangeForm.estimated_incoming_value) : undefined,
-            outgoing_sale_value: exchangeForm.outgoing_sale_value ? Number(exchangeForm.outgoing_sale_value) : undefined,
-            notes: exchangeForm.notes || undefined,
-            incoming_item: {
-              brand: exchangeForm.incoming_brand,
-              model: exchangeForm.incoming_model,
-              imei: exchangeForm.incoming_imei || undefined,
-              color: exchangeForm.incoming_color || undefined,
-              storage: exchangeForm.incoming_storage || undefined,
-              purchase_price: exchangeForm.incoming_purchase_price ? Number(exchangeForm.incoming_purchase_price) : undefined,
-              selling_price: exchangeForm.incoming_selling_price ? Number(exchangeForm.incoming_selling_price) : undefined,
-              notes: exchangeForm.notes || undefined,
-            },
-          }),
-          method: 'POST',
-        })
-        setModalMode(null)
-        resetSaleForms()
-        setNotice('Blerja me cash u regjistrua dhe arka/stoku u përditësuan.')
-        await loadStoreData()
-        setActiveView('Ndërrimet')
-        return
-      }
-
       await api(`${activeStorePath}/sales/normal`, {
         body: JSON.stringify({
           inventory_item_id: Number(saleForm.inventory_item_id),
@@ -358,9 +341,80 @@ function App() {
     }
   }
 
+  async function createExchange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId) return
+
+    try {
+      await api(`${activeStorePath}/sales/exchange`, {
+        body: JSON.stringify({
+          outgoing_item_id: Number(exchangeForm.outgoing_item_id),
+          cash_difference: Number(exchangeForm.cash_difference || 0),
+          cash_direction: exchangeForm.cash_direction,
+          estimated_incoming_value: exchangeForm.estimated_incoming_value ? Number(exchangeForm.estimated_incoming_value) : undefined,
+          outgoing_sale_value: exchangeForm.outgoing_sale_value ? Number(exchangeForm.outgoing_sale_value) : undefined,
+          notes: exchangeForm.notes || undefined,
+          incoming_item: {
+            brand: exchangeForm.incoming_brand,
+            model: exchangeForm.incoming_model,
+            imei: exchangeForm.incoming_imei || undefined,
+            color: exchangeForm.incoming_color || undefined,
+            storage: exchangeForm.incoming_storage || undefined,
+            purchase_price: exchangeForm.incoming_purchase_price ? Number(exchangeForm.incoming_purchase_price) : undefined,
+            selling_price: exchangeForm.incoming_selling_price ? Number(exchangeForm.incoming_selling_price) : undefined,
+            notes: exchangeForm.notes || undefined,
+          },
+        }),
+        method: 'POST',
+      })
+      setModalMode(null)
+      resetExchangeForm()
+      setNotice('Ndërrimi u regjistrua dhe arka/stoku u përditësuan.')
+      await loadStoreData()
+      setActiveView('Ndërrimet')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Regjistrimi i ndërrimit dështoi.')
+    }
+  }
+
+  async function createCustomerPurchase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId) return
+
+    try {
+      await api(`${activeStorePath}/purchases`, {
+        body: JSON.stringify({
+          purchase_price: purchaseForm.purchase_price ? Number(purchaseForm.purchase_price) : undefined,
+          expected_selling_price: purchaseForm.expected_selling_price ? Number(purchaseForm.expected_selling_price) : undefined,
+          notes: purchaseForm.notes || undefined,
+          incoming_item: {
+            brand: purchaseForm.incoming_brand,
+            model: purchaseForm.incoming_model,
+            imei: purchaseForm.incoming_imei || undefined,
+            color: purchaseForm.incoming_color || undefined,
+            storage: purchaseForm.incoming_storage || undefined,
+            purchase_price: purchaseForm.purchase_price ? Number(purchaseForm.purchase_price) : undefined,
+            selling_price: purchaseForm.expected_selling_price ? Number(purchaseForm.expected_selling_price) : undefined,
+            notes: purchaseForm.notes || undefined,
+          },
+        }),
+        method: 'POST',
+      })
+      setModalMode(null)
+      resetPurchaseForm()
+      setNotice('Blerja u regjistrua: telefoni hyri në stok dhe cash-i doli nga arka.')
+      await loadStoreData()
+      setActiveView('Blerjet')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Regjistrimi i blerjes dështoi.')
+    }
+  }
+
   function resetSaleForms() {
-    setSaleMode('cash')
     setSaleForm({ inventory_item_id: '', selling_price: '' })
+  }
+
+  function resetExchangeForm() {
     setExchangeForm({
       outgoing_item_id: '',
       cash_difference: '',
@@ -378,12 +432,26 @@ function App() {
     })
   }
 
+  function resetPurchaseForm() {
+    setPurchaseForm({
+      purchase_price: '',
+      expected_selling_price: '',
+      notes: '',
+      incoming_brand: '',
+      incoming_model: '',
+      incoming_imei: '',
+      incoming_color: '',
+      incoming_storage: '',
+    })
+  }
+
   function logout() {
     localStorage.removeItem('stoku_token')
     setToken('')
     setStores([])
     setInventory([])
     setUsers([])
+    setPurchases([])
     setCurrentUser(null)
     setNotice('Dolët nga sistemi.')
   }
@@ -478,11 +546,12 @@ function App() {
             </>
           )}
           {activeView === 'Inventari' && <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
-          {activeView === 'Shitjet' && <SalesView inventory={inventory} sales={sales} onOpenSale={() => { setSaleMode('cash'); setModalMode('sale') }} />}
+          {activeView === 'Shitjet' && <SalesView inventory={inventory} sales={sales} onOpenSale={() => setModalMode('sale')} />}
+          {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenExchange={() => setModalMode('exchange')} />}
+          {activeView === 'Blerjet' && <PurchasesView purchases={purchases} onOpenPurchase={() => setModalMode('purchase')} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={sales} setPeriod={setReportPeriod} setRange={setReportRange} />}
           {activeView === 'Përdoruesit' && <UsersView users={users} onOpenUser={() => setModalMode('user')} />}
-          {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenPaidExchange={() => { setSaleMode('exchange_with_cash'); setModalMode('sale') }} />}
           {activeView === 'Historiku' && <InfoPanel title="Historiku" text="Audit log ruhet në backend për login, inventar, shitje, arkë dhe përdorues." />}
         </div>
       </section>
@@ -558,72 +627,76 @@ function App() {
       )}
 
       {modalMode === 'sale' && (
-        <Modal title="Regjistro shitje ose ndërrim" onClose={() => setModalMode(null)}>
+        <Modal title="Regjistro shitje" onClose={() => setModalMode(null)}>
           <form className="grid gap-3" onSubmit={createSale}>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {[
-                ['cash', 'Vetëm shitje', 'Artikulli shitet dhe del nga stoku.'],
-                ['exchange_with_cash', 'Blerje me cash', 'Dyqani merr telefon nga klienti dhe regjistron diferencën cash.'],
-              ].map(([mode, label, description]) => (
-                <button className={`rounded-md border p-3 text-left text-sm ${saleMode === mode ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-slate-200 hover:bg-slate-50'}`} key={mode} onClick={() => setSaleMode(mode as SaleMode)} type="button">
-                  <span className="font-semibold">{label}</span>
-                  <span className="mt-1 block text-xs text-slate-500">{description}</span>
-                </button>
-              ))}
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Artikulli</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
+                <option value="">Zgjidh artikullin</option>
+                {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+              </select>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Çmimi i shitjes" value={saleForm.selling_price} onChange={(value) => setSaleForm((form) => ({ ...form, selling_price: value }))} />
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                <p className="font-medium">Pagesa: Cash</p>
+                <p className="text-xs">Shuma regjistrohet automatikisht në arkën e dyqanit.</p>
+              </div>
             </div>
+            <SubmitRow submitLabel="Regjistro shitjen" onCancel={() => setModalMode(null)} />
+          </form>
+        </Modal>
+      )}
 
-            {saleMode === 'cash' ? (
-              <>
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Artikulli</span>
-                  <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
-                    <option value="">Zgjidh artikullin</option>
-                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
-                  </select>
-                </label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Çmimi i shitjes" value={saleForm.selling_price} onChange={(value) => setSaleForm((form) => ({ ...form, selling_price: value }))} />
-                  <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                    <p className="font-medium">Pagesa: Cash</p>
-                    <p className="text-xs">Shuma regjistrohet automatikisht në arkën e dyqanit.</p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Telefoni që del nga stoku</span>
-                  <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, outgoing_item_id: event.target.value }))} required value={exchangeForm.outgoing_item_id}>
-                    <option value="">Zgjidh artikullin</option>
-                    {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
-                  </select>
-                </label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Brendi hyrës" value={exchangeForm.incoming_brand} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_brand: value }))} />
-                  <Field label="Modeli hyrës" value={exchangeForm.incoming_model} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_model: value }))} />
-                  <Field label="IMEI" value={exchangeForm.incoming_imei} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_imei: value }))} />
-                  <Field label="Ngjyra" value={exchangeForm.incoming_color} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_color: value }))} />
-                  <Field label="Memoria" value={exchangeForm.incoming_storage} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_storage: value }))} />
-                  <Field label="Vlera e blerjes hyrëse" value={exchangeForm.incoming_purchase_price} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_purchase_price: value }))} />
-                  <Field label="Çmimi i shitjes hyrëse" value={exchangeForm.incoming_selling_price} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_selling_price: value }))} />
-                  <Field label="Vlera e telefonit që del" value={exchangeForm.outgoing_sale_value} onChange={(value) => setExchangeForm((form) => ({ ...form, outgoing_sale_value: value }))} />
-                </div>
-                {saleMode === 'exchange_with_cash' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium text-slate-700">Drejtimi i cash-it</span>
-                      <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, cash_direction: event.target.value }))} value={exchangeForm.cash_direction}>
-                        <option value="customer_pays">Klienti paguan</option>
-                        <option value="store_pays">Dyqani paguan</option>
-                      </select>
-                    </label>
-                    <Field label="Shuma cash" value={exchangeForm.cash_difference} onChange={(value) => setExchangeForm((form) => ({ ...form, cash_difference: value }))} />
-                  </div>
-                )}
-                <Field label="Shënim" value={exchangeForm.notes} onChange={(value) => setExchangeForm((form) => ({ ...form, notes: value }))} />
-              </>
-            )}
-            <SubmitRow submitLabel={saleMode === 'cash' ? 'Regjistro shitjen' : 'Regjistro blerjen'} onCancel={() => setModalMode(null)} />
+      {modalMode === 'exchange' && (
+        <Modal title="Regjistro ndërrim" onClose={() => setModalMode(null)}>
+          <form className="grid gap-3" onSubmit={createExchange}>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Telefoni që del nga stoku</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, outgoing_item_id: event.target.value }))} required value={exchangeForm.outgoing_item_id}>
+                <option value="">Zgjidh artikullin</option>
+                {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+              </select>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Brendi hyrës" value={exchangeForm.incoming_brand} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_brand: value }))} />
+              <Field label="Modeli hyrës" value={exchangeForm.incoming_model} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_model: value }))} />
+              <Field label="IMEI" value={exchangeForm.incoming_imei} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_imei: value }))} />
+              <Field label="Ngjyra" value={exchangeForm.incoming_color} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_color: value }))} />
+              <Field label="Memoria" value={exchangeForm.incoming_storage} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_storage: value }))} />
+              <Field label="Vlera e blerjes hyrëse" value={exchangeForm.incoming_purchase_price} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_purchase_price: value }))} />
+              <Field label="Çmimi i shitjes hyrëse" value={exchangeForm.incoming_selling_price} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_selling_price: value }))} />
+              <Field label="Vlera e telefonit që del" value={exchangeForm.outgoing_sale_value} onChange={(value) => setExchangeForm((form) => ({ ...form, outgoing_sale_value: value }))} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Drejtimi i cash-it</span>
+                <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, cash_direction: event.target.value }))} value={exchangeForm.cash_direction}>
+                  <option value="customer_pays">Klienti paguan</option>
+                  <option value="store_pays">Dyqani paguan</option>
+                  <option value="none">Pa cash</option>
+                </select>
+              </label>
+              <Field label="Shuma cash" value={exchangeForm.cash_difference} onChange={(value) => setExchangeForm((form) => ({ ...form, cash_difference: value }))} />
+            </div>
+            <Field label="Shënim" value={exchangeForm.notes} onChange={(value) => setExchangeForm((form) => ({ ...form, notes: value }))} />
+            <SubmitRow submitLabel="Regjistro ndërrimin" onCancel={() => setModalMode(null)} />
+          </form>
+        </Modal>
+      )}
+
+      {modalMode === 'purchase' && (
+        <Modal title="Regjistro blerje" onClose={() => setModalMode(null)}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={createCustomerPurchase}>
+            <Field label="Brendi hyrës" value={purchaseForm.incoming_brand} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_brand: value }))} />
+            <Field label="Modeli hyrës" value={purchaseForm.incoming_model} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_model: value }))} />
+            <Field label="IMEI" value={purchaseForm.incoming_imei} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_imei: value }))} />
+            <Field label="Ngjyra" value={purchaseForm.incoming_color} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_color: value }))} />
+            <Field label="Memoria" value={purchaseForm.incoming_storage} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_storage: value }))} />
+            <Field label="Çmimi i blerjes" value={purchaseForm.purchase_price} onChange={(value) => setPurchaseForm((form) => ({ ...form, purchase_price: value }))} />
+            <Field label="Çmimi i shitjes" value={purchaseForm.expected_selling_price} onChange={(value) => setPurchaseForm((form) => ({ ...form, expected_selling_price: value }))} />
+            <Field label="Shënim" value={purchaseForm.notes} onChange={(value) => setPurchaseForm((form) => ({ ...form, notes: value }))} />
+            <SubmitRow submitLabel="Regjistro blerjen" onCancel={() => setModalMode(null)} />
           </form>
         </Modal>
       )}
@@ -769,16 +842,16 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   )
 }
 
-function ExchangeView({ inventory, onOpenPaidExchange }: { inventory: InventoryApiItem[]; onOpenPaidExchange: () => void }) {
+function ExchangeView({ inventory, onOpenExchange }: { inventory: InventoryApiItem[]; onOpenExchange: () => void }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md bg-blue-50 text-blue-700"><Repeat2 size={20} /></div>
-          <div><h2 className="text-base font-semibold">Blerje nga klienti</h2><p className="text-sm text-slate-500">Regjistro telefonin që del, telefonin që hyn dhe diferencën cash.</p></div>
+          <div><h2 className="text-base font-semibold">Ndërrimet</h2><p className="text-sm text-slate-500">Klienti merr telefon nga dyqani dhe sjell telefon tjetër me diferencë cash.</p></div>
         </div>
         <div className="mt-4 grid gap-2">
-          <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenPaidExchange} type="button"><HandCoins size={16} />Blerje me cash</button>
+          <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenExchange} type="button"><Repeat2 size={16} />Regjistro ndërrim</button>
         </div>
       </article>
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
@@ -792,6 +865,26 @@ function ExchangeView({ inventory, onOpenPaidExchange }: { inventory: InventoryA
           ))}
         </div>
       </article>
+    </section>
+  )
+}
+
+function PurchasesView({ onOpenPurchase, purchases }: { onOpenPurchase: () => void; purchases: PurchaseApiRecord[] }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-base font-semibold">Blerjet</h2><p className="text-sm text-slate-500">Telefona që klientët ia shesin dyqanit. Hyn stok, del cash.</p></div>
+        <button className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenPurchase} type="button"><HandCoins size={16} />Regjistro blerje</button>
+      </div>
+      <div className="divide-y">
+        {purchases.slice(0, 10).map((purchase) => (
+          <div className="flex items-center justify-between gap-3 px-4 py-3" key={purchase.id}>
+            <div><p className="font-medium">{purchase.purchase_number}</p><p className="text-sm text-slate-500">{new Date(purchase.created_at).toLocaleString()}</p></div>
+            <div className="text-right"><p className="font-semibold">{formatEuro(Number(purchase.purchase_price))}</p><p className="text-xs text-slate-500">Çmimi i synuar {formatEuro(Number(purchase.expected_selling_price))}</p></div>
+          </div>
+        ))}
+        {!purchases.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka blerje të regjistruara.</p>}
+      </div>
     </section>
   )
 }
@@ -827,7 +920,7 @@ function statusLabel(status: string) {
 }
 
 function cashTypeLabel(type: string) {
-  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje' } as Record<string, string>)[type] ?? type
+  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje', customer_purchase_payout: 'Blerje nga klienti' } as Record<string, string>)[type] ?? type
 }
 
 function paymentLabel(method: string) {

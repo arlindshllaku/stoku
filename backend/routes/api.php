@@ -2,6 +2,7 @@
 
 use App\Domain\Cash\Controllers\CashController;
 use App\Domain\Inventory\Controllers\InventoryController;
+use App\Domain\Purchases\Controllers\PurchaseController;
 use App\Domain\Sales\Controllers\SalesController;
 use App\Domain\Stores\Controllers\StoreController;
 use App\Domain\Users\Controllers\AuthController;
@@ -29,6 +30,9 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('/sales/normal', [SalesController::class, 'normal']);
                 Route::post('/sales/exchange', [SalesController::class, 'exchange']);
                 Route::get('/sales', [SalesController::class, 'index']);
+
+                Route::get('/purchases', [PurchaseController::class, 'index']);
+                Route::post('/purchases', [PurchaseController::class, 'store']);
 
                 Route::get('/cash', [CashController::class, 'show']);
                 Route::post('/cash/deposit', [CashController::class, 'deposit']);
