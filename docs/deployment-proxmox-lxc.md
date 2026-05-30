@@ -62,6 +62,14 @@ api.example.com  -> http://<lxc-ip>:8000
 ```
 
 Set `APP_URL=https://api.example.com` and `FRONTEND_URL=https://app.example.com`.
+Set `VITE_API_BASE_URL=https://api.example.com/api/v1` before rebuilding the frontend image.
+
+For Sanctum/CORS, also set:
+
+```text
+SANCTUM_STATEFUL_DOMAINS=app.example.com
+SESSION_DOMAIN=.example.com
+```
 
 ## Backups
 
