@@ -26,6 +26,8 @@ services:
     env_file:
       - ./backend/.env
     command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    healthcheck:
+      disable: true
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -43,6 +45,8 @@ services:
     env_file:
       - ./backend/.env
     command: php artisan schedule:work
+    healthcheck:
+      disable: true
     volumes:
       - backend_storage:/app/storage
     depends_on:

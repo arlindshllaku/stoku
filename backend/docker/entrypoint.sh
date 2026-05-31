@@ -25,6 +25,17 @@ else
   php artisan optimize:clear || true
 fi
 
-php artisan migrate --force
+run_migrations="${RUN_MIGRATIONS:-auto}"
+
+if [ "$run_migrations" = "auto" ]; then
+  case "$*" in
+    *"queue:work"*|*"schedule:work"*) run_migrations=false ;;
+    *) run_migrations=true ;;
+  esac
+fi
+
+if [ "$run_migrations" = "true" ]; then
+  php artisan migrate --force
+fi
 
 exec "$@"
