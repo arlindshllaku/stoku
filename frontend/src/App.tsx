@@ -39,11 +39,12 @@ type InventoryApiItem = {
 }
 type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
-type CashState = { register?: { current_balance: string }; transactions?: { data: CashTransaction[] } }
 type SaleApiRecord = { id: number; sale_number: string; total: string; profit: string; payment_method: string; created_at: string }
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; created_at: string }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
+type PaginatedApiResponse<T> = { data: T[]; current_page: number; last_page: number }
+type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
 type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
@@ -176,6 +177,48 @@ function App() {
     return response.json()
   }
 
+  async function loadAllPages<T>(path: string, perPage = 100): Promise<T[]> {
+    const separator = path.includes('?') ? '&' : '?'
+    const firstPage = await api<PaginatedApiResponse<T>>(`${path}${separator}per_page=${perPage}`)
+    const items = [...firstPage.data]
+
+    if (firstPage.last_page > firstPage.current_page) {
+      const pages = Array.from({ length: firstPage.last_page - firstPage.current_page }, (_, index) => firstPage.current_page + index + 1)
+      const remainingPages = await Promise.all(
+        pages.map((page) => api<PaginatedApiResponse<T>>(`${path}${separator}per_page=${perPage}&page=${page}`)),
+      )
+      items.push(...remainingPages.flatMap((page) => page.data))
+    }
+
+    return items
+  }
+
+  async function loadCashState(): Promise<CashState> {
+    const firstPage = await api<CashState>(`${activeStorePath}/cash?per_page=100`)
+    const transactions = firstPage.transactions
+
+    if (!transactions || transactions.last_page <= transactions.current_page) {
+      return firstPage
+    }
+
+    const pages = Array.from({ length: transactions.last_page - transactions.current_page }, (_, index) => transactions.current_page + index + 1)
+    const remainingPages = await Promise.all(
+      pages.map((page) => api<CashState>(`${activeStorePath}/cash?per_page=100&page=${page}`)),
+    )
+
+    return {
+      ...firstPage,
+      transactions: {
+        ...transactions,
+        data: [
+          ...transactions.data,
+          ...remainingPages.flatMap((page) => page.transactions?.data ?? []),
+        ],
+        current_page: transactions.last_page,
+      },
+    }
+  }
+
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsLoading(true)
@@ -212,17 +255,17 @@ function App() {
     setIsLoading(true)
     try {
       const [inventoryResult, usersResult, cashResult, salesResult, purchasesResult] = await Promise.all([
-        api<{ data: Array<InventoryApiItem> }>(`${activeStorePath}/inventory?per_page=100`),
+        loadAllPages<InventoryApiItem>(`${activeStorePath}/inventory`),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`),
-        api<CashState>(`${activeStorePath}/cash?per_page=100`),
-        api<{ data: Array<SaleApiRecord> }>(`${activeStorePath}/sales?per_page=500`),
-        api<{ data: Array<PurchaseApiRecord> }>(`${activeStorePath}/purchases?per_page=100`),
+        loadCashState(),
+        loadAllPages<SaleApiRecord>(`${activeStorePath}/sales`),
+        loadAllPages<PurchaseApiRecord>(`${activeStorePath}/purchases`),
       ])
-      setInventory(inventoryResult.data)
+      setInventory(inventoryResult)
       setUsers(usersResult.data)
       setCash(cashResult)
-      setSales(salesResult.data)
-      setPurchases(purchasesResult.data)
+      setSales(salesResult)
+      setPurchases(purchasesResult)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
     } finally {
