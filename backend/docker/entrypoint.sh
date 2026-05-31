@@ -16,7 +16,15 @@ mkdir -p \
 
 chown -R www-data:www-data storage bootstrap/cache
 
-php artisan config:clear || true
+if [ "${APP_ENV:-production}" = "production" ]; then
+  php artisan optimize:clear || true
+  php artisan config:cache
+  php artisan route:cache
+  php artisan event:cache
+else
+  php artisan optimize:clear || true
+fi
+
 php artisan migrate --force
 
 exec "$@"
