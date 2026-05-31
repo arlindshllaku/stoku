@@ -47,6 +47,7 @@ type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[]
 type InventorySummary = { total_items: number; stock_count: number; stock_value: number | string }
 type PaginationMeta = { current_page: number; last_page: number; per_page: number; total: number; from: number | null; to: number | null }
 type PaginatedApiResponse<T> = PaginationMeta & { data: T[]; summary?: InventorySummary }
+type ReportApiResponse<T> = { data: T[]; summary?: Record<string, number | string> }
 type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
 type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
@@ -90,6 +91,7 @@ function App() {
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
+  const [reportSales, setReportSales] = useState<SaleApiRecord[]>([])
   const [purchases, setPurchases] = useState<PurchaseApiRecord[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [search, setSearch] = useState('')
@@ -179,6 +181,16 @@ function App() {
   }, [inventoryPage])
 
   useEffect(() => {
+    if (!token || !selectedStoreId || activeView !== 'Raportet') return
+
+    const timer = window.setTimeout(() => {
+      void loadSalesReport()
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [token, selectedStoreId, activeView, reportPeriod, reportRange.from, reportRange.to])
+
+  useEffect(() => {
     if (!token || !selectedStoreId || (modalMode !== 'sale' && modalMode !== 'exchange')) return
 
     const timer = window.setTimeout(() => {
@@ -243,6 +255,17 @@ function App() {
     if (status) params.set('status', status)
 
     return `${activeStorePath}/inventory${params.size ? `?${params.toString()}` : ''}`
+  }
+
+  function salesReportPath(period = reportPeriod, range = reportRange) {
+    const params = new URLSearchParams({ period })
+
+    if (period === 'custom') {
+      params.set('from', range.from)
+      params.set('to', range.to)
+    }
+
+    return `${activeStorePath}/reports/sales?${params.toString()}`
   }
 
   function applyInventoryResult(result: PaginatedApiResponse<InventoryApiItem>) {
@@ -310,6 +333,20 @@ function App() {
     }
   }
 
+  async function loadSalesReport(period = reportPeriod, range = reportRange) {
+    if (!selectedStoreId) return
+
+    try {
+      const result = await api<ReportApiResponse<SaleApiRecord>>(salesReportPath(period, range))
+      setReportSales(result.data)
+    } catch (error) {
+      setReportSales([])
+      if (activeView === 'Raportet') {
+        setNotice(error instanceof Error ? error.message : 'Ngarkimi i raportit të shitjeve dështoi.')
+      }
+    }
+  }
+
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsLoading(true)
@@ -347,16 +384,16 @@ function App() {
     try {
       const [inventoryResult, usersResult, cashResult, salesResult, purchasesResult] = await Promise.all([
         api<PaginatedApiResponse<InventoryApiItem>>(inventoryPath(page)),
-        api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`),
+        api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`).catch(() => ({ data: [] })),
         loadCashState(),
-        loadAllPages<SaleApiRecord>(`${activeStorePath}/sales`),
-        loadAllPages<PurchaseApiRecord>(`${activeStorePath}/purchases`),
+        api<PaginatedApiResponse<SaleApiRecord>>(`${activeStorePath}/sales?per_page=20`),
+        api<PaginatedApiResponse<PurchaseApiRecord>>(`${activeStorePath}/purchases?per_page=20`),
       ])
       applyInventoryResult(inventoryResult)
       setUsers(usersResult.data)
       setCash(cashResult)
-      setSales(salesResult)
-      setPurchases(purchasesResult)
+      setSales(salesResult.data)
+      setPurchases(purchasesResult.data)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
     } finally {
@@ -655,6 +692,7 @@ function App() {
     setStores([])
     setInventory([])
     setAvailableInventory([])
+    setReportSales([])
     setInventoryMeta(emptyPaginationMeta)
     setInventorySummary(emptyInventorySummary)
     setInventoryPage(1)
@@ -770,7 +808,7 @@ function App() {
           {activeView === 'Ndërrimet' && <ExchangeView stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} />}
           {activeView === 'Blerjet' && <PurchasesView purchases={purchases} onOpenPurchase={() => setModalMode('purchase')} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
-          {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={sales} setPeriod={setReportPeriod} setRange={setReportRange} />}
+          {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={reportSales} setPeriod={setReportPeriod} setRange={setReportRange} />}
           {activeView === 'Përdoruesit' && <UsersView users={users} onDeleteUser={deleteUser} onEditUser={openEditUser} onOpenUser={() => setModalMode('user')} />}
           {activeView === 'Historiku' && <InfoPanel title="Historiku" text="Audit log ruhet në backend për login, inventar, shitje, arkë dhe përdorues." />}
         </div>

@@ -11,6 +11,7 @@ use App\Domain\Sales\Models\Sale;
 use App\Domain\Sales\Models\SaleItem;
 use App\Domain\Stores\Models\Store;
 use App\Models\User;
+use App\Support\DocumentNumberService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -20,6 +21,7 @@ class SalesService
         private readonly InventoryService $inventoryService,
         private readonly CashService $cashService,
         private readonly AuditLogger $auditLogger,
+        private readonly DocumentNumberService $documentNumberService,
     ) {
     }
 
@@ -125,8 +127,6 @@ class SalesService
 
     private function nextSaleNumber(Store $store): string
     {
-        $count = Sale::query()->where('store_id', $store->id)->whereDate('created_at', today())->count() + 1;
-
-        return sprintf('S-%s-%04d', now()->format('Ymd'), $count);
+        return $this->documentNumberService->next($store, 'sale', 'S');
     }
 }

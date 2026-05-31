@@ -7,6 +7,7 @@ use App\Domain\Cash\Models\CashTransaction;
 use App\Domain\Stores\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class CashService
 {
@@ -24,7 +25,13 @@ class CashService
             $this->registerFor($store);
             $register = CashRegister::query()->where('store_id', $store->id)->lockForUpdate()->firstOrFail();
             $delta = $direction === 'in' ? $amount : -$amount;
-            $register->update(['current_balance' => $register->current_balance + $delta]);
+            $balanceAfter = (float) $register->current_balance + $delta;
+
+            if ($balanceAfter < 0) {
+                throw ValidationException::withMessages(['amount' => 'Arka nuk ka saldo të mjaftueshme për këtë dalje.']);
+            }
+
+            $register->update(['current_balance' => $balanceAfter]);
 
             return CashTransaction::query()->create([
                 'store_id' => $store->id,
@@ -32,7 +39,7 @@ class CashService
                 'type' => $type,
                 'direction' => $direction,
                 'amount' => $amount,
-                'balance_after' => $register->current_balance,
+                'balance_after' => $balanceAfter,
                 'reference_type' => $reference ? $reference::class : null,
                 'reference_id' => $reference->id ?? null,
                 'notes' => $notes,

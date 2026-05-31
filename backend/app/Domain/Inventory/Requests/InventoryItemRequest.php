@@ -18,8 +18,8 @@ class InventoryItemRequest extends FormRequest
         $itemId = $this->route('inventory')?->id;
 
         return [
-            'category_id' => ['nullable', 'integer'],
-            'supplier_id' => ['nullable', 'integer'],
+            'category_id' => ['nullable', 'integer', Rule::exists('inventory_categories', 'id')->where('store_id', $storeId)],
+            'supplier_id' => ['nullable', 'integer', Rule::exists('suppliers', 'id')->where('store_id', $storeId)],
             'imei' => [
                 'nullable',
                 'string',

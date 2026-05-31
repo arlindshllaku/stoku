@@ -24,7 +24,10 @@ class StoreController extends Controller
         $query = Store::query()->latest();
 
         if (! $request->user()->hasPlatformRole('super_admin')) {
-            $query->whereHas('users', fn ($users) => $users->whereKey($request->user()->id));
+            $query->where('status', 'active')
+                ->whereHas('users', fn ($users) => $users
+                    ->whereKey($request->user()->id)
+                    ->where('store_users.status', 'active'));
         }
 
         return response()->json($query->paginate($request->integer('per_page', 25)));

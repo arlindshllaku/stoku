@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Stores\Models\Store;
+use App\Domain\Users\Models\Permission;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -45,6 +46,32 @@ class User extends Authenticatable
     public function hasPlatformRole(string $role): bool
     {
         return $this->roles()->where('name', $role)->where('scope', 'platform')->exists();
+    }
+
+    public function hasPermission(string $permission, ?Store $store = null): bool
+    {
+        $permissionExists = Permission::query()->where('name', $permission)->exists();
+
+        if (! $permissionExists) {
+            return false;
+        }
+
+        if ($this->roles()
+            ->where('scope', 'platform')
+            ->whereHas('permissions', fn ($permissions) => $permissions->where('name', $permission))
+            ->exists()) {
+            return true;
+        }
+
+        if (! $store) {
+            return false;
+        }
+
+        return $this->roles()
+            ->where('scope', 'store')
+            ->wherePivot('store_id', $store->id)
+            ->whereHas('permissions', fn ($permissions) => $permissions->where('name', $permission))
+            ->exists();
     }
 
     public function roles(): BelongsToMany

@@ -19,7 +19,11 @@ class EnsureStoreAccess
             $request->route()->setParameter('store', $store);
         }
 
-        if ($user?->hasPlatformRole('super_admin') || $store->users()->whereKey($user?->id)->wherePivot('status', 'active')->exists()) {
+        if ($user?->hasPlatformRole('super_admin')) {
+            return $next($request);
+        }
+
+        if ($store->status === 'active' && $store->users()->whereKey($user?->id)->wherePivot('status', 'active')->exists()) {
             return $next($request);
         }
 

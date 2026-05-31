@@ -126,6 +126,7 @@ class StoreUserController extends Controller
         ]);
 
         $this->applyRole($request, $store, $user, $data['role'], $data['status']);
+        $this->revokeTokensIfInactive($user);
 
         $this->auditLogger->log('store_user.updated', $store->id, $user, $old, [
             'name' => $user->name,
@@ -151,6 +152,7 @@ class StoreUserController extends Controller
 
         $store->users()->updateExistingPivot($user->id, ['status' => $data['status']]);
         $user->update(['status' => $data['status']]);
+        $this->revokeTokensIfInactive($user);
 
         $this->auditLogger->log('store_user.status_changed', $store->id, $user, [], $data);
 
@@ -181,6 +183,7 @@ class StoreUserController extends Controller
 
         if (! $user->stores()->exists() && ! $user->hasPlatformRole('super_admin')) {
             $user->update(['status' => 'inactive']);
+            $this->revokeTokensIfInactive($user);
         }
 
         $this->auditLogger->log('store_user.removed', $store->id, $user, $old, [
@@ -241,6 +244,13 @@ class StoreUserController extends Controller
 
         if ($role) {
             $user->roles()->detach($role->id);
+        }
+    }
+
+    private function revokeTokensIfInactive(User $user): void
+    {
+        if ($user->status === 'inactive') {
+            $user->tokens()->delete();
         }
     }
 

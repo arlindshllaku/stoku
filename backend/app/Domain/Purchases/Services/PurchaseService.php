@@ -8,6 +8,7 @@ use App\Domain\Inventory\Services\InventoryService;
 use App\Domain\Purchases\Models\Purchase;
 use App\Domain\Stores\Models\Store;
 use App\Models\User;
+use App\Support\DocumentNumberService;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseService
@@ -16,6 +17,7 @@ class PurchaseService
         private readonly InventoryService $inventoryService,
         private readonly CashService $cashService,
         private readonly AuditLogger $auditLogger,
+        private readonly DocumentNumberService $documentNumberService,
     ) {
     }
 
@@ -56,8 +58,6 @@ class PurchaseService
 
     private function nextPurchaseNumber(Store $store): string
     {
-        $count = Purchase::query()->where('store_id', $store->id)->whereDate('created_at', today())->count() + 1;
-
-        return sprintf('P-%s-%04d', now()->format('Ymd'), $count);
+        return $this->documentNumberService->next($store, 'purchase', 'P');
     }
 }
