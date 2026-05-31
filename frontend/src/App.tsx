@@ -39,7 +39,8 @@ type InventoryApiItem = {
 }
 type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
-type SaleApiRecord = { id: number; sale_number: string; total: string; profit: string; payment_method: string; created_at: string }
+type SaleItemRecord = { id: number; description: string; quantity: number; unit_price: string; unit_cost: string; profit: string }
+type SaleApiRecord = { id: number; sale_number: string; type?: string; subtotal?: string; discount?: string; total: string; profit: string; payment_method: string; created_at: string; items?: SaleItemRecord[] }
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; created_at: string }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
@@ -671,13 +672,7 @@ function App() {
       const exportRows = await loadAllPages<InventoryApiItem>(inventoryFilterPath(), 100)
       const rows = exportRows.map((item) => [item.imei ?? 'Nuk ka', `${item.brand} ${item.model}`, item.color ?? '', item.storage ?? '', item.purchase_price, item.selling_price, statusLabel(item.status)])
       const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = 'inventari-stoku.csv'
-      link.click()
-      URL.revokeObjectURL(url)
+      downloadUtf8Blob(csv, 'inventari-stoku.csv', 'text/csv;charset=utf-8;')
       setNotice(`Inventari u eksportua si CSV (${exportRows.length} artikuj).`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Eksporti i inventarit dështoi.')
@@ -1122,53 +1117,19 @@ function SalesView({ onOpenSale, sales, stockCount }: { onOpenSale: () => void; 
 
 function ReportsView({ period, range, sales, setPeriod, setRange }: { period: ReportPeriod; range: { from: string; to: string }; sales: SaleApiRecord[]; setPeriod: (period: ReportPeriod) => void; setRange: (range: { from: string; to: string }) => void }) {
   const filteredSales = filterSalesByPeriod(sales, period, range)
-  const total = filteredSales.reduce((sum, sale) => sum + Number(sale.total), 0)
-  const profit = filteredSales.reduce((sum, sale) => sum + Number(sale.profit), 0)
+  const report = buildSalesReport(filteredSales)
   const reportTitle = `Raporti i shitjeve - ${reportPeriodLabel(period)}`
+  const periodText = reportPeriodRangeLabel(period, range)
 
   function exportExcel() {
-    const rows = reportRows(filteredSales)
-    const html = `<table><thead><tr>${['Data', 'Fatura', 'Pagesa', 'Totali', 'Fitimi'].map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' })
-    downloadBlob(blob, `raporti-shitjeve-${period}.xls`)
+    downloadUtf8Blob(salesReportHtml(reportTitle, periodText, report), `raporti-shitjeve-${period}-${todayInputValue()}.xls`, 'application/vnd.ms-excel;charset=utf-8;')
   }
 
   function exportPdf() {
-    const rows = reportRows(filteredSales)
     const printable = window.open('', '_blank', 'width=960,height=720')
     if (!printable) return
 
-    printable.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>${escapeHtml(reportTitle)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; }
-            h1 { font-size: 22px; margin: 0 0 6px; }
-            p { margin: 0 0 18px; color: #475569; }
-            table { border-collapse: collapse; width: 100%; font-size: 12px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-            th { background: #f1f5f9; }
-            .summary { display: flex; gap: 16px; margin: 18px 0; }
-            .summary div { border: 1px solid #cbd5e1; padding: 10px 12px; }
-          </style>
-        </head>
-        <body>
-          <h1>${escapeHtml(reportTitle)}</h1>
-          <p>Gjeneruar më ${escapeHtml(new Date().toLocaleString())}</p>
-          <div class="summary">
-            <div><strong>Shitje</strong><br>${filteredSales.length}</div>
-            <div><strong>Qarkullimi</strong><br>${escapeHtml(formatEuro(total))}</div>
-            <div><strong>Fitimi</strong><br>${escapeHtml(formatEuro(profit))}</div>
-          </div>
-          <table>
-            <thead><tr>${['Data', 'Fatura', 'Pagesa', 'Totali', 'Fitimi'].map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
-            <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
-          </table>
-        </body>
-      </html>
-    `)
+    printable.document.write(salesReportHtml(reportTitle, periodText, report))
     printable.document.close()
     printable.focus()
     printable.print()
@@ -1178,7 +1139,7 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
     <section className="space-y-4">
       <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div><h2 className="text-base font-semibold">Raportet e shitjeve</h2><p className="text-sm text-slate-500">Filtro shitjet sipas ditës, javës, muajit ose periudhës së personalizuar.</p></div>
+          <div><h2 className="text-base font-semibold">Raportet e shitjeve</h2><p className="text-sm text-slate-500">{periodText} · Gjeneruar më {new Date().toLocaleString('sq-AL')}</p></div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setPeriod(event.target.value as ReportPeriod)} value={period}>
               <option value="daily">Ditore</option>
@@ -1197,19 +1158,38 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
           </div>
         </div>
       </div>
-      <section className="grid gap-3 md:grid-cols-3">
-        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Shitje</p><strong className="mt-2 block text-2xl font-semibold">{filteredSales.length}</strong></article>
-        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Qarkullimi</p><strong className="mt-2 block text-2xl font-semibold">{formatEuro(total)}</strong></article>
-        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Fitimi</p><strong className="mt-2 block text-2xl font-semibold">{formatEuro(profit)}</strong></article>
+      <section className="grid gap-3 md:grid-cols-4">
+        <ReportMetric label="Shitje" value={report.count.toString()} />
+        <ReportMetric label="Qarkullimi" value={formatEuro(report.total)} />
+        <ReportMetric label="Fitimi" value={formatEuro(report.profit)} tone="emerald" />
+        <ReportMetric label="Marzha" value={formatPercent(report.margin)} />
+        <ReportMetric label="Kosto" value={formatEuro(report.cost)} />
+        <ReportMetric label="Mesatarja / faturë" value={formatEuro(report.averageSale)} />
+        <ReportMetric label="Artikuj të shitur" value={report.itemsSold.toString()} />
+        <ReportMetric label="Zbritje" value={formatEuro(report.discount)} />
+      </section>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Pagesat</h2>
+          <div className="mt-3 space-y-3">{report.paymentRows.map((row) => <div key={row.label}><div className="flex justify-between text-sm"><span>{row.label}</span><strong>{formatEuro(row.total)}</strong></div><div className="mt-1 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-blue-600" style={{ width: `${row.share}%` }} /></div><p className="mt-1 text-xs text-slate-500">{row.count} fatura · {formatPercent(row.share)}</p></div>)}{!report.paymentRows.length && <p className="text-sm text-slate-500">Nuk ka të dhëna.</p>}</div>
+        </article>
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Shitjet sipas ditëve</h2>
+          <div className="mt-3 divide-y">{report.dailyRows.map((row) => <div className="flex items-center justify-between gap-3 py-2" key={row.date}><div><p className="text-sm font-medium">{row.date}</p><p className="text-xs text-slate-500">{row.count} fatura</p></div><strong className="text-sm">{formatEuro(row.total)}</strong></div>)}{!report.dailyRows.length && <p className="text-sm text-slate-500">Nuk ka të dhëna.</p>}</div>
+        </article>
+        <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Produktet kryesore</h2>
+          <div className="mt-3 divide-y">{report.productRows.slice(0, 6).map((row) => <div className="flex items-center justify-between gap-3 py-2" key={row.description}><div><p className="text-sm font-medium">{row.description}</p><p className="text-xs text-slate-500">{row.quantity} copë · fitimi {formatEuro(row.profit)}</p></div><strong className="text-sm">{formatEuro(row.total)}</strong></div>)}{!report.productRows.length && <p className="text-sm text-slate-500">Nuk ka të dhëna.</p>}</div>
+        </article>
       </section>
       <section className="rounded-md border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-2 border-b px-4 py-3"><CalendarDays className="text-slate-400" size={18} /><h2 className="text-base font-semibold">Detajet</h2></div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-left text-sm">
-            <thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">Data</th><th className="px-4 py-3 font-medium">Fatura</th><th className="px-4 py-3 font-medium">Pagesa</th><th className="px-4 py-3 font-medium">Totali</th><th className="px-4 py-3 font-medium">Fitimi</th></tr></thead>
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">Data</th><th className="px-4 py-3 font-medium">Fatura</th><th className="px-4 py-3 font-medium">Artikulli</th><th className="px-4 py-3 font-medium">Pagesa</th><th className="px-4 py-3 font-medium">Kosto</th><th className="px-4 py-3 font-medium">Totali</th><th className="px-4 py-3 font-medium">Fitimi</th><th className="px-4 py-3 font-medium">Marzha</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredSales.map((sale) => <tr key={sale.id}><td className="px-4 py-3">{new Date(sale.created_at).toLocaleString()}</td><td className="px-4 py-3 font-medium">{sale.sale_number}</td><td className="px-4 py-3">{paymentLabel(sale.payment_method)}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(sale.total))}</td><td className="px-4 py-3 text-emerald-700">{formatEuro(Number(sale.profit))}</td></tr>)}
-              {!filteredSales.length && <tr><td className="px-4 py-6 text-slate-500" colSpan={5}>Nuk ka shitje për këtë periudhë.</td></tr>}
+              {filteredSales.map((sale) => <tr key={sale.id}><td className="px-4 py-3">{new Date(sale.created_at).toLocaleString('sq-AL')}</td><td className="px-4 py-3 font-medium">{sale.sale_number}</td><td className="px-4 py-3">{saleItemsLabel(sale)}</td><td className="px-4 py-3">{paymentLabel(sale.payment_method)}</td><td className="px-4 py-3">{formatEuro(saleCost(sale))}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(sale.total))}</td><td className="px-4 py-3 text-emerald-700">{formatEuro(Number(sale.profit))}</td><td className="px-4 py-3">{formatPercent(saleMargin(sale))}</td></tr>)}
+              {!filteredSales.length && <tr><td className="px-4 py-6 text-slate-500" colSpan={8}>Nuk ka shitje për këtë periudhë.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1332,14 +1312,193 @@ function reportPeriodLabel(period: ReportPeriod) {
   return ({ daily: 'Ditor', weekly: 'Javor', monthly: 'Mujor', custom: 'Periudhë e personalizuar' } as Record<ReportPeriod, string>)[period]
 }
 
+function reportPeriodRangeLabel(period: ReportPeriod, range: { from: string; to: string }) {
+  if (period === 'custom') {
+    return `${formatDateLabel(range.from)} - ${formatDateLabel(range.to)}`
+  }
+
+  if (period === 'daily') return `Sot, ${new Date().toLocaleDateString('sq-AL')}`
+  if (period === 'weekly') return 'Java aktuale'
+
+  return 'Muaji aktual'
+}
+
+function ReportMetric({ label, tone = 'slate', value }: { label: string; tone?: 'slate' | 'emerald'; value: string }) {
+  const toneClass = tone === 'emerald' ? 'text-emerald-700' : 'text-slate-950'
+
+  return <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">{label}</p><strong className={`mt-2 block text-2xl font-semibold ${toneClass}`}>{value}</strong></article>
+}
+
 function reportRows(sales: SaleApiRecord[]) {
   return sales.map((sale) => [
-    new Date(sale.created_at).toLocaleString(),
+    new Date(sale.created_at).toLocaleString('sq-AL'),
     sale.sale_number,
+    saleItemsLabel(sale),
     paymentLabel(sale.payment_method),
+    formatEuro(saleCost(sale)),
     formatEuro(Number(sale.total)),
     formatEuro(Number(sale.profit)),
+    formatPercent(saleMargin(sale)),
   ])
+}
+
+function saleItemsLabel(sale: SaleApiRecord) {
+  return sale.items?.length ? sale.items.map((item) => item.description).join(', ') : 'Artikull'
+}
+
+function saleItemsQuantity(sale: SaleApiRecord) {
+  return sale.items?.reduce((total, item) => total + Number(item.quantity ?? 1), 0) ?? 1
+}
+
+function saleCost(sale: SaleApiRecord) {
+  if (sale.items?.length) {
+    return sale.items.reduce((total, item) => total + Number(item.unit_cost) * Number(item.quantity ?? 1), 0)
+  }
+
+  return Math.max(Number(sale.total) - Number(sale.profit), 0)
+}
+
+function saleMargin(sale: SaleApiRecord) {
+  const total = Number(sale.total)
+
+  return total > 0 ? (Number(sale.profit) / total) * 100 : 0
+}
+
+function buildSalesReport(sales: SaleApiRecord[]) {
+  const total = sales.reduce((sum, sale) => sum + Number(sale.total), 0)
+  const profit = sales.reduce((sum, sale) => sum + Number(sale.profit), 0)
+  const discount = sales.reduce((sum, sale) => sum + Number(sale.discount ?? 0), 0)
+  const cost = sales.reduce((sum, sale) => sum + saleCost(sale), 0)
+  const itemsSold = sales.reduce((sum, sale) => sum + saleItemsQuantity(sale), 0)
+
+  return {
+    averageSale: sales.length ? total / sales.length : 0,
+    cost,
+    count: sales.length,
+    dailyRows: salesByDay(sales),
+    discount,
+    itemsSold,
+    margin: total > 0 ? (profit / total) * 100 : 0,
+    paymentRows: salesByPayment(sales),
+    productRows: salesByProduct(sales),
+    profit,
+    rows: reportRows(sales),
+    total,
+  }
+}
+
+function salesByPayment(sales: SaleApiRecord[]) {
+  const totalSales = sales.reduce((sum, sale) => sum + Number(sale.total), 0)
+  const grouped = new Map<string, { count: number; total: number }>()
+
+  sales.forEach((sale) => {
+    const label = paymentLabel(sale.payment_method)
+    const current = grouped.get(label) ?? { count: 0, total: 0 }
+    grouped.set(label, { count: current.count + 1, total: current.total + Number(sale.total) })
+  })
+
+  return Array.from(grouped.entries())
+    .map(([label, value]) => ({ ...value, label, share: totalSales > 0 ? Math.round((value.total / totalSales) * 100) : 0 }))
+    .sort((a, b) => b.total - a.total)
+}
+
+function salesByDay(sales: SaleApiRecord[]) {
+  const grouped = new Map<string, { count: number; profit: number; total: number }>()
+
+  sales.forEach((sale) => {
+    const date = new Date(sale.created_at).toLocaleDateString('sq-AL')
+    const current = grouped.get(date) ?? { count: 0, profit: 0, total: 0 }
+    grouped.set(date, { count: current.count + 1, profit: current.profit + Number(sale.profit), total: current.total + Number(sale.total) })
+  })
+
+  return Array.from(grouped.entries()).map(([date, value]) => ({ ...value, date }))
+}
+
+function salesByProduct(sales: SaleApiRecord[]) {
+  const grouped = new Map<string, { profit: number; quantity: number; total: number }>()
+
+  sales.forEach((sale) => {
+    const items = sale.items?.length ? sale.items : [{ description: saleItemsLabel(sale), profit: sale.profit, quantity: 1, unit_price: sale.total, unit_cost: String(saleCost(sale)) }]
+
+    items.forEach((item) => {
+      const quantity = Number(item.quantity ?? 1)
+      const current = grouped.get(item.description) ?? { profit: 0, quantity: 0, total: 0 }
+      grouped.set(item.description, {
+        profit: current.profit + Number(item.profit),
+        quantity: current.quantity + quantity,
+        total: current.total + Number(item.unit_price) * quantity,
+      })
+    })
+  })
+
+  return Array.from(grouped.entries())
+    .map(([description, value]) => ({ ...value, description }))
+    .sort((a, b) => b.total - a.total)
+}
+
+function salesReportHtml(title: string, periodText: string, report: ReturnType<typeof buildSalesReport>) {
+  const headers = ['#', 'Data', 'Fatura', 'Artikulli', 'Pagesa', 'Kosto', 'Totali', 'Fitimi', 'Marzha']
+  const generatedAt = new Date().toLocaleString('sq-AL')
+
+  return `<!doctype html>
+<html lang="sq">
+  <head>
+    <meta charset="UTF-8">
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { color: #0f172a; font-family: Arial, Helvetica, sans-serif; margin: 28px; }
+      h1 { font-size: 24px; margin: 0 0 6px; }
+      h2 { font-size: 16px; margin: 24px 0 10px; }
+      p { margin: 0; color: #475569; }
+      .muted { color: #64748b; font-size: 12px; }
+      .header { border-bottom: 3px solid #2563eb; padding-bottom: 16px; }
+      .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
+      .card { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; }
+      .card span { color: #64748b; display: block; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; }
+      .card strong { font-size: 18px; }
+      table { border-collapse: collapse; width: 100%; font-size: 11px; }
+      th, td { border: 1px solid #cbd5e1; padding: 7px; text-align: left; vertical-align: top; }
+      th { background: #f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; }
+      .right { text-align: right; }
+      .green { color: #047857; font-weight: 700; }
+      @media print { body { margin: 16px; } .summary { grid-template-columns: repeat(4, 1fr); } }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(periodText)}</p>
+      <p class="muted">Gjeneruar më ${escapeHtml(generatedAt)} · Stoku</p>
+    </div>
+    <div class="summary">
+      <div class="card"><span>Shitje</span><strong>${report.count}</strong></div>
+      <div class="card"><span>Qarkullimi</span><strong>${escapeHtml(formatEuro(report.total))}</strong></div>
+      <div class="card"><span>Fitimi</span><strong>${escapeHtml(formatEuro(report.profit))}</strong></div>
+      <div class="card"><span>Marzha</span><strong>${escapeHtml(formatPercent(report.margin))}</strong></div>
+      <div class="card"><span>Kosto</span><strong>${escapeHtml(formatEuro(report.cost))}</strong></div>
+      <div class="card"><span>Mesatarja / faturë</span><strong>${escapeHtml(formatEuro(report.averageSale))}</strong></div>
+      <div class="card"><span>Artikuj</span><strong>${report.itemsSold}</strong></div>
+      <div class="card"><span>Zbritje</span><strong>${escapeHtml(formatEuro(report.discount))}</strong></div>
+    </div>
+    <h2>Pagesat</h2>
+    <table><thead><tr><th>Metoda</th><th class="right">Fatura</th><th class="right">Totali</th><th class="right">Pjesëmarrja</th></tr></thead><tbody>
+      ${report.paymentRows.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td class="right">${row.count}</td><td class="right">${escapeHtml(formatEuro(row.total))}</td><td class="right">${escapeHtml(formatPercent(row.share))}</td></tr>`).join('') || '<tr><td colspan="4">Nuk ka të dhëna.</td></tr>'}
+    </tbody></table>
+    <h2>Produktet kryesore</h2>
+    <table><thead><tr><th>Produkti</th><th class="right">Sasia</th><th class="right">Totali</th><th class="right">Fitimi</th></tr></thead><tbody>
+      ${report.productRows.map((row) => `<tr><td>${escapeHtml(row.description)}</td><td class="right">${row.quantity}</td><td class="right">${escapeHtml(formatEuro(row.total))}</td><td class="right green">${escapeHtml(formatEuro(row.profit))}</td></tr>`).join('') || '<tr><td colspan="4">Nuk ka të dhëna.</td></tr>'}
+    </tbody></table>
+    <h2>Detajet e shitjeve</h2>
+    <table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>
+      ${report.rows.map((row, index) => `<tr><td>${index + 1}</td>${row.map((cell, cellIndex) => `<td class="${cellIndex >= 4 ? 'right' : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="9">Nuk ka shitje për këtë periudhë.</td></tr>'}
+    </tbody></table>
+  </body>
+</html>`
+}
+
+function downloadUtf8Blob(content: string, filename: string, type: string) {
+  const blob = new Blob([`\uFEFF${content}`], { type })
+  downloadBlob(blob, filename)
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1359,8 +1518,16 @@ function formatEuro(value: number) {
   return new Intl.NumberFormat('de-DE', { currency: 'EUR', maximumFractionDigits: 0, style: 'currency' }).format(value)
 }
 
+function formatPercent(value: number) {
+  return `${new Intl.NumberFormat('sq-AL', { maximumFractionDigits: 1 }).format(value)}%`
+}
+
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function formatDateLabel(value: string) {
+  return value ? new Date(`${value}T00:00:00`).toLocaleDateString('sq-AL') : '-'
 }
 
 function isToday(value: string) {
