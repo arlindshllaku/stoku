@@ -19,6 +19,8 @@ class InventoryController extends Controller
     public function index(Request $request, Store $store): JsonResponse
     {
         $query = InventoryItem::query()->where('store_id', $store->id)->latest();
+        $storeItems = InventoryItem::query()->where('store_id', $store->id);
+        $perPage = min(max($request->integer('per_page', 25), 1), 100);
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
@@ -32,7 +34,14 @@ class InventoryController extends Controller
                 ->orWhere('model', 'ilike', "%{$search}%"));
         }
 
-        return response()->json($query->paginate($request->integer('per_page', 25)));
+        return response()->json(array_merge(
+            $query->paginate($perPage)->toArray(),
+            ['summary' => [
+                'total_items' => (clone $storeItems)->count(),
+                'stock_count' => (clone $storeItems)->where('status', 'in_stock')->count(),
+                'stock_value' => (float) (clone $storeItems)->where('status', 'in_stock')->sum('purchase_price'),
+            ]],
+        ));
     }
 
     public function store(InventoryItemRequest $request, Store $store): JsonResponse

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import Chart from 'react-apexcharts'
 import {
@@ -39,13 +39,19 @@ type InventoryApiItem = {
 }
 type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
-type CashState = { register?: { current_balance: string }; transactions?: { data: CashTransaction[] } }
 type SaleApiRecord = { id: number; sale_number: string; total: string; profit: string; payment_method: string; created_at: string }
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; created_at: string }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
+type InventorySummary = { total_items: number; stock_count: number; stock_value: number | string }
+type PaginationMeta = { current_page: number; last_page: number; per_page: number; total: number; from: number | null; to: number | null }
+type PaginatedApiResponse<T> = PaginationMeta & { data: T[]; summary?: InventorySummary }
+type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
 type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
+
+const emptyPaginationMeta: PaginationMeta = { current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null }
+const emptyInventorySummary: InventorySummary = { total_items: 0, stock_count: 0, stock_value: 0 }
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Paneli', description: 'Pamje e përgjithshme e dyqanit' },
@@ -75,6 +81,11 @@ function App() {
   const [stores, setStores] = useState<StoreRecord[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null)
   const [inventory, setInventory] = useState<InventoryApiItem[]>([])
+  const [availableInventory, setAvailableInventory] = useState<InventoryApiItem[]>([])
+  const [inventoryMeta, setInventoryMeta] = useState<PaginationMeta>(emptyPaginationMeta)
+  const [inventorySummary, setInventorySummary] = useState<InventorySummary>(emptyInventorySummary)
+  const [inventoryPage, setInventoryPage] = useState(1)
+  const [inventoryPerPage, setInventoryPerPage] = useState(20)
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
@@ -82,6 +93,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Të gjitha')
+  const [stockOptionSearch, setStockOptionSearch] = useState('')
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [notice, setNotice] = useState('Kyçu për të nisur punën.')
   const [isLoading, setIsLoading] = useState(false)
@@ -124,20 +136,8 @@ function App() {
   const selectedStore = stores.find((store) => store.id === selectedStoreId)
   const isSuperAdmin = currentUser?.roles?.some((role) => role.name === 'super_admin' && role.scope === 'platform') ?? false
 
-  const filteredInventory = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
-
-    return inventory.filter((item) => {
-      const text = [item.imei ?? 'Nuk ka', item.brand, item.model, item.color ?? '', item.storage ?? ''].join(' ').toLowerCase()
-      const matchesSearch = text.includes(normalizedSearch)
-      const matchesStatus = statusFilter === 'Të gjitha' || statusLabel(item.status) === statusFilter
-
-      return matchesSearch && matchesStatus
-    })
-  }, [inventory, search, statusFilter])
-
-  const stockValue = inventory.filter((item) => item.status === 'in_stock').reduce((total, item) => total + Number(item.purchase_price), 0)
-  const stockCount = inventory.filter((item) => item.status === 'in_stock').length
+  const stockValue = Number(inventorySummary.stock_value)
+  const stockCount = inventorySummary.stock_count
   const activeStorePath = selectedStoreId ? `/stores/${selectedStoreId}` : ''
   const cashTransactions = cash.transactions?.data ?? []
   const todaysCash = cashSummaryForToday(cashTransactions)
@@ -153,9 +153,39 @@ function App() {
 
   useEffect(() => {
     if (token && selectedStoreId) {
-      void loadStoreData()
+      void loadStoreData(1)
     }
   }, [selectedStoreId, token])
+
+  useEffect(() => {
+    if (!token || !selectedStoreId) return
+
+    const timer = window.setTimeout(() => {
+      if (inventoryPage !== 1) {
+        setInventoryPage(1)
+      } else {
+        void loadInventoryData(1)
+      }
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [search, statusFilter, inventoryPerPage])
+
+  useEffect(() => {
+    if (token && selectedStoreId) {
+      void loadInventoryData(inventoryPage)
+    }
+  }, [inventoryPage])
+
+  useEffect(() => {
+    if (!token || !selectedStoreId || (modalMode !== 'sale' && modalMode !== 'exchange')) return
+
+    const timer = window.setTimeout(() => {
+      void loadAvailableInventory(stockOptionSearch)
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [modalMode, stockOptionSearch])
 
   async function api<T>(path: string, options: RequestInit = {}, authToken = token): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -174,6 +204,109 @@ function App() {
     }
 
     return response.json()
+  }
+
+  async function loadAllPages<T>(path: string, perPage = 100): Promise<T[]> {
+    const separator = path.includes('?') ? '&' : '?'
+    const firstPage = await api<PaginatedApiResponse<T>>(`${path}${separator}per_page=${perPage}`)
+    const items = [...firstPage.data]
+
+    if (firstPage.last_page > firstPage.current_page) {
+      const pages = Array.from({ length: firstPage.last_page - firstPage.current_page }, (_, index) => firstPage.current_page + index + 1)
+      const remainingPages = await Promise.all(
+        pages.map((page) => api<PaginatedApiResponse<T>>(`${path}${separator}per_page=${perPage}&page=${page}`)),
+      )
+      items.push(...remainingPages.flatMap((page) => page.data))
+    }
+
+    return items
+  }
+
+  function inventoryPath(page: number, perPage = inventoryPerPage) {
+    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+    const normalizedSearch = search.trim()
+    const status = inventoryStatusValue(statusFilter)
+
+    if (normalizedSearch) params.set('search', normalizedSearch)
+    if (status) params.set('status', status)
+
+    return `${activeStorePath}/inventory?${params.toString()}`
+  }
+
+  function inventoryFilterPath() {
+    const params = new URLSearchParams()
+    const normalizedSearch = search.trim()
+    const status = inventoryStatusValue(statusFilter)
+
+    if (normalizedSearch) params.set('search', normalizedSearch)
+    if (status) params.set('status', status)
+
+    return `${activeStorePath}/inventory${params.size ? `?${params.toString()}` : ''}`
+  }
+
+  function applyInventoryResult(result: PaginatedApiResponse<InventoryApiItem>) {
+    setInventory(result.data)
+    setInventoryMeta(paginationMeta(result))
+    setInventorySummary(result.summary ?? emptyInventorySummary)
+  }
+
+  async function loadInventoryData(page = inventoryPage) {
+    if (!selectedStoreId) return
+
+    try {
+      const result = await api<PaginatedApiResponse<InventoryApiItem>>(inventoryPath(page))
+
+      if (!result.data.length && result.current_page > 1) {
+        setInventoryPage(result.current_page - 1)
+        return
+      }
+
+      applyInventoryResult(result)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ngarkimi i inventarit dështoi.')
+    }
+  }
+
+  async function loadAvailableInventory(searchTerm = '') {
+    if (!selectedStoreId) return
+
+    const params = new URLSearchParams({ status: 'in_stock', per_page: '50' })
+    const normalizedSearch = searchTerm.trim()
+
+    if (normalizedSearch) params.set('search', normalizedSearch)
+
+    try {
+      const result = await api<PaginatedApiResponse<InventoryApiItem>>(`${activeStorePath}/inventory?${params.toString()}`)
+      setAvailableInventory(result.data)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ngarkimi i artikujve të stokut dështoi.')
+    }
+  }
+
+  async function loadCashState(): Promise<CashState> {
+    const firstPage = await api<CashState>(`${activeStorePath}/cash?per_page=100`)
+    const transactions = firstPage.transactions
+
+    if (!transactions || transactions.last_page <= transactions.current_page) {
+      return firstPage
+    }
+
+    const pages = Array.from({ length: transactions.last_page - transactions.current_page }, (_, index) => transactions.current_page + index + 1)
+    const remainingPages = await Promise.all(
+      pages.map((page) => api<CashState>(`${activeStorePath}/cash?per_page=100&page=${page}`)),
+    )
+
+    return {
+      ...firstPage,
+      transactions: {
+        ...transactions,
+        data: [
+          ...transactions.data,
+          ...remainingPages.flatMap((page) => page.transactions?.data ?? []),
+        ],
+        current_page: transactions.last_page,
+      },
+    }
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -208,21 +341,21 @@ function App() {
     setCurrentUser(result.user)
   }
 
-  async function loadStoreData() {
+  async function loadStoreData(page = inventoryPage) {
     setIsLoading(true)
     try {
       const [inventoryResult, usersResult, cashResult, salesResult, purchasesResult] = await Promise.all([
-        api<{ data: Array<InventoryApiItem> }>(`${activeStorePath}/inventory?per_page=100`),
+        api<PaginatedApiResponse<InventoryApiItem>>(inventoryPath(page)),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`),
-        api<CashState>(`${activeStorePath}/cash?per_page=100`),
-        api<{ data: Array<SaleApiRecord> }>(`${activeStorePath}/sales?per_page=500`),
-        api<{ data: Array<PurchaseApiRecord> }>(`${activeStorePath}/purchases?per_page=100`),
+        loadCashState(),
+        loadAllPages<SaleApiRecord>(`${activeStorePath}/sales`),
+        loadAllPages<PurchaseApiRecord>(`${activeStorePath}/purchases`),
       ])
-      setInventory(inventoryResult.data)
+      applyInventoryResult(inventoryResult)
       setUsers(usersResult.data)
       setCash(cashResult)
-      setSales(salesResult.data)
-      setPurchases(purchasesResult.data)
+      setSales(salesResult)
+      setPurchases(purchasesResult)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
     } finally {
@@ -247,7 +380,8 @@ function App() {
       setModalMode(null)
       setInventoryForm({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
       setNotice('Artikulli u ruajt në backend.')
-      await loadStoreData()
+      setInventoryPage(1)
+      await loadStoreData(1)
       setActiveView('Inventari')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ruajtja e artikullit dështoi.')
@@ -271,6 +405,7 @@ function App() {
       setStoreForm({ name: '', address: '', phone: '', email: '', currency: 'EUR', timezone: 'Europe/Belgrade' })
       setNotice('Dyqani u krijua. Tani mund t’i shtosh admin/pronar te Përdoruesit.')
       await loadStores()
+      setInventoryPage(1)
       setSelectedStoreId(store.id)
       setActiveView('Përdoruesit')
     } catch (error) {
@@ -478,9 +613,11 @@ function App() {
 
   function resetSaleForms() {
     setSaleForm({ inventory_item_id: '', selling_price: '' })
+    setStockOptionSearch('')
   }
 
   function resetExchangeForm() {
+    setStockOptionSearch('')
     setExchangeForm({
       outgoing_item_id: '',
       cash_difference: '',
@@ -516,24 +653,35 @@ function App() {
     setToken('')
     setStores([])
     setInventory([])
+    setAvailableInventory([])
+    setInventoryMeta(emptyPaginationMeta)
+    setInventorySummary(emptyInventorySummary)
+    setInventoryPage(1)
+    setStockOptionSearch('')
     setUsers([])
     setPurchases([])
     setCurrentUser(null)
     setNotice('Dolët nga sistemi.')
   }
 
-  function exportInventory() {
-    const header = ['IMEI', 'Produkti', 'Ngjyra', 'Memoria', 'Kosto', 'Çmimi', 'Statusi']
-    const rows = filteredInventory.map((item) => [item.imei ?? 'Nuk ka', `${item.brand} ${item.model}`, item.color ?? '', item.storage ?? '', item.purchase_price, item.selling_price, statusLabel(item.status)])
-    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'inventari-stoku.csv'
-    link.click()
-    URL.revokeObjectURL(url)
-    setNotice('Inventari u eksportua si CSV.')
+  async function exportInventory() {
+    try {
+      const header = ['IMEI', 'Produkti', 'Ngjyra', 'Memoria', 'Kosto', 'Çmimi', 'Statusi']
+      setNotice('Duke përgatitur eksportin e inventarit...')
+      const exportRows = await loadAllPages<InventoryApiItem>(inventoryFilterPath(), 100)
+      const rows = exportRows.map((item) => [item.imei ?? 'Nuk ka', `${item.brand} ${item.model}`, item.color ?? '', item.storage ?? '', item.purchase_price, item.selling_price, statusLabel(item.status)])
+      const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'inventari-stoku.csv'
+      link.click()
+      URL.revokeObjectURL(url)
+      setNotice(`Inventari u eksportua si CSV (${exportRows.length} artikuj).`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Eksporti i inventarit dështoi.')
+    }
   }
 
   async function updateInventoryStatus(itemId: number, status: string) {
@@ -556,7 +704,7 @@ function App() {
   }
 
   const metrics = [
-    { label: 'Vlera e stokut', value: formatEuro(stockValue), delta: `${inventory.length} artikuj`, icon: Boxes },
+    { label: 'Vlera e stokut', value: formatEuro(stockValue), delta: `${inventorySummary.total_items} artikuj`, icon: Boxes },
     { label: 'Produkte në stok', value: stockCount.toString(), delta: 'Aktive', icon: PackagePlus },
     { label: 'Shitje sot', value: formatEuro(todaysSales), delta: `${sales.filter((sale) => isToday(sale.created_at)).length} fatura`, icon: ReceiptText },
     { label: 'Cash sot', value: formatEuro(todaysCash.in - todaysCash.out), delta: `${formatEuro(todaysCash.in)} hyrje`, icon: Banknote },
@@ -593,7 +741,7 @@ function App() {
                 <p className="text-sm text-slate-500">{activeNav.description}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setSelectedStoreId(Number(event.target.value))} value={selectedStoreId ?? ''}>
+                <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => { setInventoryPage(1); setSelectedStoreId(Number(event.target.value)) }} value={selectedStoreId ?? ''}>
                   {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                 </select>
                 {isSuperAdmin && (
@@ -602,10 +750,6 @@ function App() {
                     Dyqan i ri
                   </button>
                 )}
-                <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={17} />
-                  <input className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-600 sm:w-56" onChange={(event) => setSearch(event.target.value)} placeholder="Kërko IMEI ose model" value={search} />
-                </label>
                 <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={() => setModalMode('inventory')} type="button">
                   <PackagePlus size={17} />
                   Artikull i ri
@@ -623,12 +767,12 @@ function App() {
               <Metrics metrics={metrics} />
               <DailyCashSummary balance={Number(cash.register?.current_balance ?? 0)} cashIn={todaysCash.in} cashOut={todaysCash.out} />
               <DashboardCharts transactions={cashTransactions} weeklyCash={weeklyCash} />
-              <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} onStatusChange={updateInventoryStatus} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
+              <InventoryTable inventory={inventory} meta={inventoryMeta} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
             </>
           )}
-          {activeView === 'Inventari' && <InventoryTable filteredInventory={filteredInventory} onExport={exportInventory} onStatusChange={updateInventoryStatus} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
-          {activeView === 'Shitjet' && <SalesView inventory={inventory} sales={sales} onOpenSale={() => setModalMode('sale')} />}
-          {activeView === 'Ndërrimet' && <ExchangeView inventory={inventory} onOpenExchange={() => setModalMode('exchange')} />}
+          {activeView === 'Inventari' && <InventoryTable inventory={inventory} meta={inventoryMeta} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
+          {activeView === 'Shitjet' && <SalesView sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('sale') }} />}
+          {activeView === 'Ndërrimet' && <ExchangeView stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} />}
           {activeView === 'Blerjet' && <PurchasesView purchases={purchases} onOpenPurchase={() => setModalMode('purchase')} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={sales} setPeriod={setReportPeriod} setRange={setReportRange} />}
@@ -739,11 +883,16 @@ function App() {
         <Modal title="Regjistro shitje" onClose={() => setModalMode(null)}>
           <form className="grid gap-3" onSubmit={createSale}>
             <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Kërko artikull</span>
+              <input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => setStockOptionSearch(event.target.value)} placeholder="IMEI, brend ose model" value={stockOptionSearch} />
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="font-medium text-slate-700">Artikulli</span>
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
                 <option value="">Zgjidh artikullin</option>
-                {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+                {availableInventory.map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
               </select>
+              {!availableInventory.length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Çmimi i shitjes" value={saleForm.selling_price} onChange={(value) => setSaleForm((form) => ({ ...form, selling_price: value }))} />
@@ -761,11 +910,16 @@ function App() {
         <Modal title="Regjistro ndërrim" onClose={() => setModalMode(null)}>
           <form className="grid gap-3" onSubmit={createExchange}>
             <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Kërko telefonin që del</span>
+              <input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => setStockOptionSearch(event.target.value)} placeholder="IMEI, brend ose model" value={stockOptionSearch} />
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="font-medium text-slate-700">Telefoni që del nga stoku</span>
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, outgoing_item_id: event.target.value }))} required value={exchangeForm.outgoing_item_id}>
                 <option value="">Zgjidh artikullin</option>
-                {inventory.filter((item) => item.status === 'in_stock').map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+                {availableInventory.map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
               </select>
+              {!availableInventory.length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Brendi hyrës" value={exchangeForm.incoming_brand} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_brand: value }))} />
@@ -875,20 +1029,82 @@ function DashboardCharts({ transactions, weeklyCash }: { transactions: CashTrans
   )
 }
 
-function InventoryTable({ filteredInventory, onExport, onStatusChange, search, setStatusFilter, statusFilter }: { filteredInventory: InventoryApiItem[]; onExport: () => void; onStatusChange: (itemId: number, status: string) => void; search: string; setStatusFilter: (status: string) => void; statusFilter: string }) {
+function InventoryTable({
+  inventory,
+  meta,
+  onExport,
+  onPageChange,
+  onPerPageChange,
+  onSearchChange,
+  onStatusChange,
+  perPage,
+  search,
+  setStatusFilter,
+  statusFilter,
+}: {
+  inventory: InventoryApiItem[]
+  meta: PaginationMeta
+  onExport: () => void
+  onPageChange: (page: number) => void
+  onPerPageChange: (perPage: number) => void
+  onSearchChange: (search: string) => void
+  onStatusChange: (itemId: number, status: string) => void
+  perPage: number
+  search: string
+  setStatusFilter: (status: string) => void
+  statusFilter: string
+}) {
+  const canGoBack = meta.current_page > 1
+  const canGoForward = meta.current_page < meta.last_page
+
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold">Inventari</h2><p className="text-sm text-slate-500">{filteredInventory.length} artikuj {search ? `për "${search}"` : 'nga backend'}</p></div><div className="flex gap-2"><select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option>Të gjitha</option><option>Në stok</option><option>Rezervuar</option><option>Shitur</option><option>Dëmtuar</option></select><button className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={onExport} type="button"><Download size={16} />Eksporto</button></div></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">IMEI</th><th className="px-4 py-3 font-medium">Produkti</th><th className="px-4 py-3 font-medium">Ngjyra</th><th className="px-4 py-3 font-medium">Memoria</th><th className="px-4 py-3 font-medium">Kosto</th><th className="px-4 py-3 font-medium">Çmimi</th><th className="px-4 py-3 font-medium">Statusi</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredInventory.map((item) => <tr className="hover:bg-slate-50" key={item.id}><td className="px-4 py-3 font-mono text-xs text-slate-600">{item.imei ?? 'Nuk ka'}</td><td className="px-4 py-3 font-medium">{item.brand} {item.model}</td><td className="px-4 py-3">{item.color ?? '-'}</td><td className="px-4 py-3">{item.storage ?? '-'}</td><td className="px-4 py-3">{formatEuro(Number(item.purchase_price))}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(item.selling_price))}</td><td className="px-4 py-3"><select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700" disabled={item.status === 'sold' || item.status === 'exchanged_out'} onChange={(event) => onStatusChange(item.id, event.target.value)} value={item.status}><option value="in_stock">Në stok</option><option value="reserved">Rezervuar</option><option value="damaged">Dëmtuar</option><option value="returned">Kthyer</option>{(item.status === 'sold' || item.status === 'exchanged_out') && <option value={item.status}>{statusLabel(item.status)}</option>}</select></td></tr>)}</tbody></table></div>
+      <div className="space-y-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold">Inventari</h2>
+          <p className="text-sm text-slate-500">{meta.total} artikuj {search ? `për "${search}"` : 'nga backend'}</p>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_190px_auto]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={17} />
+            <input className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-600" onChange={(event) => onSearchChange(event.target.value)} placeholder="Kërko IMEI, brend ose model" value={search} />
+          </label>
+          <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+            <option>Të gjitha</option>
+            <option>Në stok</option>
+            <option>Rezervuar</option>
+            <option>Shitur</option>
+            <option>Dëmtuar</option>
+            <option>Kthyer</option>
+            <option>Dalë në ndërrim</option>
+          </select>
+          <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={onExport} type="button"><Download size={16} />Eksporto</button>
+        </div>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3 font-medium">IMEI</th><th className="px-4 py-3 font-medium">Produkti</th><th className="px-4 py-3 font-medium">Ngjyra</th><th className="px-4 py-3 font-medium">Memoria</th><th className="px-4 py-3 font-medium">Kosto</th><th className="px-4 py-3 font-medium">Çmimi</th><th className="px-4 py-3 font-medium">Statusi</th></tr></thead><tbody className="divide-y divide-slate-100">{inventory.map((item) => <tr className="hover:bg-slate-50" key={item.id}><td className="px-4 py-3 font-mono text-xs text-slate-600">{item.imei ?? 'Nuk ka'}</td><td className="px-4 py-3 font-medium">{item.brand} {item.model}</td><td className="px-4 py-3">{item.color ?? '-'}</td><td className="px-4 py-3">{item.storage ?? '-'}</td><td className="px-4 py-3">{formatEuro(Number(item.purchase_price))}</td><td className="px-4 py-3 font-semibold">{formatEuro(Number(item.selling_price))}</td><td className="px-4 py-3"><select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700" disabled={item.status === 'sold' || item.status === 'exchanged_out'} onChange={(event) => onStatusChange(item.id, event.target.value)} value={item.status}><option value="in_stock">Në stok</option><option value="reserved">Rezervuar</option><option value="damaged">Dëmtuar</option><option value="returned">Kthyer</option>{(item.status === 'sold' || item.status === 'exchanged_out') && <option value={item.status}>{statusLabel(item.status)}</option>}</select></td></tr>)}</tbody></table></div>
+      {!inventory.length && <p className="px-4 py-6 text-sm text-slate-500">Nuk ka artikuj për këtë kërkim ose filtër.</p>}
+      <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-500">Faqja {meta.current_page} / {meta.last_page} · {meta.total} rezultate</p>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => onPerPageChange(Number(event.target.value))} value={perPage}>
+            <option value={10}>10 / faqe</option>
+            <option value={20}>20 / faqe</option>
+            <option value={50}>50 / faqe</option>
+            <option value={100}>100 / faqe</option>
+          </select>
+          <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50" disabled={!canGoBack} onClick={() => onPageChange(meta.current_page - 1)} type="button">Mbrapa</button>
+          <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50" disabled={!canGoForward} onClick={() => onPageChange(meta.current_page + 1)} type="button">Përpara</button>
+        </div>
+      </div>
     </section>
   )
 }
 
-function SalesView({ inventory, onOpenSale, sales }: { inventory: InventoryApiItem[]; onOpenSale: () => void; sales: SaleApiRecord[] }) {
+function SalesView({ onOpenSale, sales, stockCount }: { onOpenSale: () => void; sales: SaleApiRecord[]; stockCount: number }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="text-base font-semibold">Shitjet</h2><p className="text-sm text-slate-500">{inventory.filter((item) => item.status === 'in_stock').length} artikuj të gatshëm për shitje.</p></div>
+        <div><h2 className="text-base font-semibold">Shitjet</h2><p className="text-sm text-slate-500">{stockCount} artikuj të gatshëm për shitje.</p></div>
         <button className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenSale} type="button"><ReceiptText size={16} />Regjistro shitje</button>
       </div>
       <div className="divide-y">
@@ -1002,7 +1218,7 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   )
 }
 
-function ExchangeView({ inventory, onOpenExchange }: { inventory: InventoryApiItem[]; onOpenExchange: () => void }) {
+function ExchangeView({ onOpenExchange, stockCount }: { onOpenExchange: () => void; stockCount: number }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
@@ -1016,14 +1232,8 @@ function ExchangeView({ inventory, onOpenExchange }: { inventory: InventoryApiIt
       </article>
       <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-base font-semibold">Artikuj të gatshëm për ndërrim</h2>
-        <div className="mt-3 divide-y">
-          {inventory.filter((item) => item.status === 'in_stock').slice(0, 6).map((item) => (
-            <div className="flex items-center justify-between gap-3 py-3" key={item.id}>
-              <div><p className="font-medium">{item.brand} {item.model}</p><p className="text-sm text-slate-500">IMEI: {item.imei ?? 'Pa IMEI'} · {item.storage ?? '-'}</p></div>
-              <p className="font-semibold">{formatEuro(Number(item.selling_price))}</p>
-            </div>
-          ))}
-        </div>
+        <p className="mt-2 text-3xl font-semibold">{stockCount}</p>
+        <p className="mt-1 text-sm text-slate-500">Telefona aktualisht në stok.</p>
       </article>
     </section>
   )
@@ -1077,6 +1287,21 @@ function SubmitRow({ onCancel, submitLabel }: { onCancel: () => void; submitLabe
 
 function statusLabel(status: string) {
   return ({ in_stock: 'Në stok', reserved: 'Rezervuar', sold: 'Shitur', damaged: 'Dëmtuar', exchanged_out: 'Dalë në ndërrim', returned: 'Kthyer' } as Record<string, string>)[status] ?? status
+}
+
+function inventoryStatusValue(label: string) {
+  return ({ 'Në stok': 'in_stock', Rezervuar: 'reserved', Shitur: 'sold', Dëmtuar: 'damaged', 'Dalë në ndërrim': 'exchanged_out', Kthyer: 'returned' } as Record<string, string>)[label] ?? ''
+}
+
+function paginationMeta<T>(page: PaginatedApiResponse<T>): PaginationMeta {
+  return {
+    current_page: page.current_page,
+    last_page: page.last_page,
+    per_page: Number(page.per_page),
+    total: page.total,
+    from: page.from,
+    to: page.to,
+  }
 }
 
 function cashTypeLabel(type: string) {
