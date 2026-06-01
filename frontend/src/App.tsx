@@ -13,11 +13,13 @@ import {
   HandCoins,
   LayoutDashboard,
   PackagePlus,
+  Pencil,
   ReceiptText,
   Repeat2,
   Search,
   ShieldCheck,
   Store,
+  Trash2,
   Users,
   X,
 } from 'lucide-react'
@@ -40,8 +42,10 @@ type InventoryApiItem = {
 }
 type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
-type SaleItemRecord = { id: number; description: string; quantity: number; unit_price: string; unit_cost: string; profit: string }
+type SaleItemRecord = { id: number; description: string; inventory_item_id?: number | null; inventory_item?: InventoryApiItem | null; quantity: number; unit_price: string; unit_cost: string; profit: string }
 type SaleApiRecord = { id: number; sale_number: string; type?: string; subtotal?: string; discount?: string; total: string; profit: string; payment_method: string; created_at: string; items?: SaleItemRecord[] }
+type ExchangeIncomingRecord = { id: number; estimated_value: string; item?: InventoryApiItem | null }
+type ExchangeApiRecord = { id: number; cash_difference: string; cash_direction: string; estimated_incoming_value: string; outgoing_sale_value: string; profit_loss: string; notes?: string | null; created_at: string; outgoing_item?: InventoryApiItem | null; incoming_item?: InventoryApiItem | null; incoming_items?: ExchangeIncomingRecord[] }
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; notes?: string | null; created_at: string; item?: InventoryApiItem | null }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
 type CurrentUser = { id: number; name: string; email: string; roles?: UserRole[] }
@@ -50,7 +54,7 @@ type PaginationMeta = { current_page: number; last_page: number; per_page: numbe
 type PaginatedApiResponse<T> = PaginationMeta & { data: T[]; summary?: InventorySummary }
 type ReportApiResponse<T> = { data: T[]; summary?: Record<string, number | string> }
 type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
-type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'store' | 'exchange' | 'purchase' | 'editPurchase' | null
+type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'editSale' | 'store' | 'exchange' | 'purchase' | 'editPurchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const emptyPaginationMeta: PaginationMeta = { current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null }
@@ -92,6 +96,7 @@ function App() {
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
+  const [exchanges, setExchanges] = useState<ExchangeApiRecord[]>([])
   const [reportSales, setReportSales] = useState<SaleApiRecord[]>([])
   const [purchases, setPurchases] = useState<PurchaseApiRecord[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
@@ -106,9 +111,10 @@ function App() {
   const [inventoryForm, setInventoryForm] = useState({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee', status: 'active' })
   const [editingUser, setEditingUser] = useState<StoreUser | null>(null)
+  const [editingSale, setEditingSale] = useState<SaleApiRecord | null>(null)
   const [editingPurchase, setEditingPurchase] = useState<PurchaseApiRecord | null>(null)
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
-  const [saleForm, setSaleForm] = useState({ inventory_item_id: '', selling_price: '' })
+  const [saleForm, setSaleForm] = useState({ inventory_item_id: '', payment_method: 'cash', selling_price: '' })
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('daily')
   const [reportRange, setReportRange] = useState({ from: todayInputValue(), to: todayInputValue() })
   const [exchangeForm, setExchangeForm] = useState({
@@ -401,17 +407,19 @@ function App() {
   async function loadStoreData(page = inventoryPage) {
     setIsLoading(true)
     try {
-      const [inventoryResult, usersResult, cashResult, salesResult, purchasesResult] = await Promise.all([
+      const [inventoryResult, usersResult, cashResult, salesResult, exchangesResult, purchasesResult] = await Promise.all([
         api<PaginatedApiResponse<InventoryApiItem>>(inventoryPath(page)),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`).catch(() => ({ data: [] })),
         loadCashState(),
         api<PaginatedApiResponse<SaleApiRecord>>(`${activeStorePath}/sales?per_page=20`),
+        api<PaginatedApiResponse<ExchangeApiRecord>>(`${activeStorePath}/exchanges?per_page=20`),
         api<PaginatedApiResponse<PurchaseApiRecord>>(`${activeStorePath}/purchases?per_page=20`),
       ])
       applyInventoryResult(inventoryResult)
       setUsers(usersResult.data)
       setCash(cashResult)
       setSales(salesResult.data)
+      setExchanges(exchangesResult.data)
       setPurchases(purchasesResult.data)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
@@ -584,7 +592,7 @@ function App() {
       await api(`${activeStorePath}/sales/normal`, {
         body: JSON.stringify({
           inventory_item_id: Number(saleForm.inventory_item_id),
-          payment_method: 'cash',
+          payment_method: saleForm.payment_method,
           selling_price: saleForm.selling_price ? Number(saleForm.selling_price) : undefined,
         }),
         method: 'POST',
@@ -597,6 +605,51 @@ function App() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Regjistrimi i shitjes dështoi.')
     }
+  }
+
+  async function updateSale(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId || !editingSale) return
+
+    try {
+      await api(`${activeStorePath}/sales/${editingSale.id}`, {
+        body: JSON.stringify({
+          payment_method: saleForm.payment_method,
+          selling_price: saleForm.selling_price ? Number(saleForm.selling_price) : undefined,
+        }),
+        method: 'PUT',
+      })
+      setModalMode(null)
+      setEditingSale(null)
+      resetSaleForms()
+      setNotice('Shitja u përditësua dhe arka/stoku u korrigjuan.')
+      await loadStoreData()
+      setActiveView('Shitjet')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Përditësimi i shitjes dështoi.')
+    }
+  }
+
+  async function deleteSale(sale: SaleApiRecord) {
+    if (!selectedStoreId || !window.confirm(`A dëshiron ta fshish shitjen ${sale.sale_number}? Arka dhe stoku do korrigjohen.`)) return
+
+    try {
+      await api(`${activeStorePath}/sales/${sale.id}`, { method: 'DELETE' })
+      setNotice('Shitja u fshi dhe arka/stoku u korrigjuan.')
+      await loadStoreData()
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Fshirja e shitjes dështoi.')
+    }
+  }
+
+  function openEditSale(sale: SaleApiRecord) {
+    setEditingSale(sale)
+    setSaleForm({
+      inventory_item_id: String(salePrimaryItem(sale)?.inventory_item_id ?? ''),
+      payment_method: sale.payment_method ?? 'cash',
+      selling_price: String(sale.total ?? ''),
+    })
+    setModalMode('editSale')
   }
 
   async function createExchange(event: FormEvent<HTMLFormElement>) {
@@ -739,7 +792,8 @@ function App() {
   }
 
   function resetSaleForms() {
-    setSaleForm({ inventory_item_id: '', selling_price: '' })
+    setEditingSale(null)
+    setSaleForm({ inventory_item_id: '', payment_method: 'cash', selling_price: '' })
     setStockOptionSearch('')
   }
 
@@ -791,11 +845,13 @@ function App() {
     setInventory([])
     setAvailableInventory([])
     setReportSales([])
+    setExchanges([])
     setInventoryMeta(emptyPaginationMeta)
     setInventorySummary(emptyInventorySummary)
     setInventoryPage(1)
     setStockOptionSearch('')
     setUsers([])
+    setSales([])
     setPurchases([])
     setCurrentUser(null)
     setNotice('Dolët nga sistemi.')
@@ -902,8 +958,8 @@ function App() {
             </>
           )}
           {activeView === 'Inventari' && <InventoryTable inventory={inventory} meta={inventoryMeta} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
-          {activeView === 'Shitjet' && <SalesView sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('sale') }} />}
-          {activeView === 'Ndërrimet' && <ExchangeView stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} />}
+          {activeView === 'Shitjet' && <SalesView isSuperAdmin={isSuperAdmin} onDeleteSale={deleteSale} onEditSale={openEditSale} sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); resetSaleForms(); setModalMode('sale') }} />}
+          {activeView === 'Ndërrimet' && <ExchangeView exchanges={exchanges} stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} />}
           {activeView === 'Blerjet' && <PurchasesView isSuperAdmin={isSuperAdmin} onDeletePurchase={deletePurchase} onEditPurchase={openEditPurchase} purchases={purchases} onOpenPurchase={() => { resetPurchaseForm(); setModalMode('purchase') }} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={reportSales} setPeriod={changeReportPeriod} setRange={changeReportRange} />}
@@ -1010,29 +1066,47 @@ function App() {
         </Modal>
       )}
 
-      {modalMode === 'sale' && (
-        <Modal title="Regjistro shitje" onClose={() => setModalMode(null)}>
-          <form className="grid gap-3" onSubmit={createSale}>
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-slate-700">Kërko artikull</span>
-              <input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => setStockOptionSearch(event.target.value)} placeholder="IMEI, brend ose model" value={stockOptionSearch} />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-slate-700">Artikulli</span>
-              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
-                <option value="">Zgjidh artikullin</option>
-                {availableInventory.map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
-              </select>
-              {!availableInventory.length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
-            </label>
+      {(modalMode === 'sale' || modalMode === 'editSale') && (
+        <Modal title={modalMode === 'editSale' ? 'Edito shitje' : 'Regjistro shitje'} onClose={() => { setModalMode(null); resetSaleForms() }}>
+          <form className="grid gap-3" onSubmit={modalMode === 'editSale' ? updateSale : createSale}>
+            {modalMode === 'sale' ? (
+              <>
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Kërko artikull</span>
+                  <input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => setStockOptionSearch(event.target.value)} placeholder="IMEI, brend ose model" value={stockOptionSearch} />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Artikulli</span>
+                  <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, inventory_item_id: event.target.value }))} required value={saleForm.inventory_item_id}>
+                    <option value="">Zgjidh artikullin</option>
+                    {availableInventory.map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+                  </select>
+                  {!availableInventory.length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
+                </label>
+              </>
+            ) : (
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <p className="font-semibold text-slate-900">{editingSale?.sale_number}</p>
+                <p className="text-slate-600">{saleItemsLabel(editingSale ?? undefined)} · {editingSale ? new Date(editingSale.created_at).toLocaleString('sq-AL') : ''}</p>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Çmimi i shitjes" value={saleForm.selling_price} onChange={(value) => setSaleForm((form) => ({ ...form, selling_price: value }))} />
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Pagesa</span>
+                <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setSaleForm((form) => ({ ...form, payment_method: event.target.value }))} value={saleForm.payment_method}>
+                  <option value="cash">Cash</option>
+                  <option value="card">Kartelë</option>
+                  <option value="mixed">E përzier</option>
+                  <option value="other">Tjetër</option>
+                </select>
+              </label>
               <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                <p className="font-medium">Pagesa: Cash</p>
-                <p className="text-xs">Shuma regjistrohet automatikisht në arkën e dyqanit.</p>
+                <p className="font-medium">Arka përditësohet automatikisht</p>
+                <p className="text-xs">Në editim ruhet vetëm diferenca e çmimit.</p>
               </div>
             </div>
-            <SubmitRow submitLabel="Regjistro shitjen" onCancel={() => setModalMode(null)} />
+            <SubmitRow submitLabel={modalMode === 'editSale' ? 'Ruaj ndryshimet' : 'Regjistro shitjen'} onCancel={() => { setModalMode(null); resetSaleForms() }} />
           </form>
         </Modal>
       )}
@@ -1208,10 +1282,6 @@ function InventoryTable({
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="space-y-3 border-b border-slate-200 px-4 py-3">
-        <div>
-          <h2 className="text-base font-semibold">Inventari</h2>
-          <p className="text-sm text-slate-500">{meta.total} artikuj {search ? `për "${search}"` : 'nga backend'}</p>
-        </div>
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_190px_auto]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={17} />
@@ -1285,22 +1355,49 @@ function InventoryTable({
   )
 }
 
-function SalesView({ onOpenSale, sales, stockCount }: { onOpenSale: () => void; sales: SaleApiRecord[]; stockCount: number }) {
+function SalesView({ isSuperAdmin, onDeleteSale, onEditSale, onOpenSale, sales, stockCount }: { isSuperAdmin: boolean; onDeleteSale: (sale: SaleApiRecord) => void; onEditSale: (sale: SaleApiRecord) => void; onOpenSale: () => void; sales: SaleApiRecord[]; stockCount: number }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="text-base font-semibold">Shitjet</h2><p className="text-sm text-slate-500">{stockCount} artikuj të gatshëm për shitje.</p></div>
-        <button className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenSale} type="button"><ReceiptText size={16} />Regjistro shitje</button>
+        <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenSale} type="button"><ReceiptText size={16} />Regjistro shitje</button>
       </div>
-      <div className="divide-y">
-        {sales.slice(0, 8).map((sale) => (
-          <div className="flex items-center justify-between gap-3 px-4 py-3" key={sale.id}>
-            <div><p className="font-medium">{sale.sale_number}</p><p className="text-sm text-slate-500">{new Date(sale.created_at).toLocaleString()} · {paymentLabel(sale.payment_method)}</p></div>
-            <div className="text-right"><p className="font-semibold">{formatEuro(Number(sale.total))}</p><p className="text-xs text-emerald-700">Fitimi {formatEuro(Number(sale.profit))}</p></div>
-          </div>
-        ))}
-        {!sales.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka shitje të regjistruara.</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[960px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Fatura</th>
+              <th className="px-4 py-3 font-medium">Artikulli</th>
+              <th className="px-4 py-3 font-medium">Data</th>
+              <th className="px-4 py-3 font-medium">Pagesa</th>
+              <th className="px-4 py-3 text-right font-medium">Totali</th>
+              <th className="px-4 py-3 text-right font-medium">Fitimi</th>
+              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {sales.map((sale) => (
+              <tr className="hover:bg-slate-50/70" key={sale.id}>
+                <td className="px-4 py-3"><p className="font-semibold text-slate-900">{sale.sale_number}</p><p className="text-xs text-slate-500">{sale.type === 'normal' ? 'Shitje normale' : sale.type}</p></td>
+                <td className="px-4 py-3">{saleItemDetails(sale)}</td>
+                <td className="px-4 py-3 text-slate-600">{new Date(sale.created_at).toLocaleString('sq-AL')}</td>
+                <td className="px-4 py-3"><span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{paymentLabel(sale.payment_method)}</span></td>
+                <td className="px-4 py-3 text-right font-semibold">{formatEuro(Number(sale.total))}</td>
+                <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatEuro(Number(sale.profit))}</td>
+                {isSuperAdmin && (
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditSale(sale)} />
+                      <ActionIconButton icon={Trash2} label="Fshi" onClick={() => onDeleteSale(sale)} tone="danger" />
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      {!sales.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka shitje të regjistruara.</p>}
     </section>
   )
 }
@@ -1387,23 +1484,38 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   )
 }
 
-function ExchangeView({ onOpenExchange, stockCount }: { onOpenExchange: () => void; stockCount: number }) {
+function ExchangeView({ exchanges, onOpenExchange, stockCount }: { exchanges: ExchangeApiRecord[]; onOpenExchange: () => void; stockCount: number }) {
   return (
-    <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-      <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-md bg-blue-50 text-blue-700"><Repeat2 size={20} /></div>
-          <div><h2 className="text-base font-semibold">Ndërrimet</h2><p className="text-sm text-slate-500">Klienti merr telefon nga dyqani dhe sjell një ose dy telefona me diferencë cash.</p></div>
-        </div>
-        <div className="mt-4 grid gap-2">
-          <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenExchange} type="button"><Repeat2 size={16} />Regjistro ndërrim</button>
-        </div>
-      </article>
-      <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-base font-semibold">Artikuj të gatshëm për ndërrim</h2>
-        <p className="mt-2 text-3xl font-semibold">{stockCount}</p>
-        <p className="mt-1 text-sm text-slate-500">Telefona aktualisht në stok.</p>
-      </article>
+    <section className="rounded-md border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-base font-semibold">Ndërrimet</h2><p className="text-sm text-slate-500">{stockCount} telefona në stok · çdo rresht tregon çka doli dhe çka hyri.</p></div>
+        <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenExchange} type="button"><Repeat2 size={16} />Regjistro ndërrim</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Data</th>
+              <th className="px-4 py-3 font-medium">Doli nga dyqani</th>
+              <th className="px-4 py-3 font-medium">Hyri nga klienti</th>
+              <th className="px-4 py-3 font-medium">Cash</th>
+              <th className="px-4 py-3 text-right font-medium">Fitim/Humbje</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {exchanges.map((exchange) => (
+              <tr className="align-top hover:bg-slate-50/70" key={exchange.id}>
+                <td className="px-4 py-3 text-slate-600">{new Date(exchange.created_at).toLocaleString('sq-AL')}</td>
+                <td className="px-4 py-3">{inventoryItemLabel(exchange.outgoing_item)}</td>
+                <td className="px-4 py-3"><div className="space-y-2">{exchangeIncomingItems(exchange).map((item, index) => <div className="rounded-md bg-slate-50 px-2 py-1" key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></td>
+                <td className="px-4 py-3">{exchangeCashLabel(exchange)}</td>
+                <td className={`px-4 py-3 text-right font-semibold ${Number(exchange.profit_loss) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatEuro(Number(exchange.profit_loss))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!exchanges.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka ndërrime të regjistruara.</p>}
     </section>
   )
 }
@@ -1413,25 +1525,42 @@ function PurchasesView({ isSuperAdmin, onDeletePurchase, onEditPurchase, onOpenP
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="text-base font-semibold">Blerjet</h2><p className="text-sm text-slate-500">Telefona që klientët ia shesin dyqanit. Hyn stok, del cash.</p></div>
-        <button className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white" onClick={onOpenPurchase} type="button"><HandCoins size={16} />Regjistro blerje</button>
+        <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenPurchase} type="button"><HandCoins size={16} />Regjistro blerje</button>
       </div>
-      <div className="divide-y">
-        {purchases.map((purchase) => (
-          <div className="flex items-center justify-between gap-3 px-4 py-3" key={purchase.id}>
-            <div><p className="font-medium">{purchase.purchase_number}</p><p className="text-sm text-slate-500">{purchase.item ? `${purchase.item.brand} ${purchase.item.model} · IMEI: ${purchase.item.imei ?? 'Pa IMEI'}` : new Date(purchase.created_at).toLocaleString()}</p></div>
-            <div className="flex items-center gap-3 text-right">
-              <div><p className="font-semibold">{formatEuro(Number(purchase.purchase_price))}</p><p className="text-xs text-slate-500">Çmimi i synuar {formatEuro(Number(purchase.expected_selling_price))}</p></div>
-              {isSuperAdmin && (
-                <div className="flex gap-2">
-                  <button className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50" onClick={() => onEditPurchase(purchase)} type="button">Edito</button>
-                  <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50" onClick={() => onDeletePurchase(purchase)} type="button">Fshi</button>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-        {!purchases.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka blerje të regjistruara.</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[960px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Dokumenti</th>
+              <th className="px-4 py-3 font-medium">Telefoni</th>
+              <th className="px-4 py-3 font-medium">Data</th>
+              <th className="px-4 py-3 text-right font-medium">Paguar</th>
+              <th className="px-4 py-3 text-right font-medium">Çmimi i synuar</th>
+              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {purchases.map((purchase) => (
+              <tr className="hover:bg-slate-50/70" key={purchase.id}>
+                <td className="px-4 py-3"><p className="font-semibold text-slate-900">{purchase.purchase_number}</p><p className="text-xs text-slate-500">Blerje nga klienti</p></td>
+                <td className="px-4 py-3">{inventoryItemLabel(purchase.item)}</td>
+                <td className="px-4 py-3 text-slate-600">{new Date(purchase.created_at).toLocaleString('sq-AL')}</td>
+                <td className="px-4 py-3 text-right font-semibold text-rose-700">{formatEuro(Number(purchase.purchase_price))}</td>
+                <td className="px-4 py-3 text-right font-semibold">{formatEuro(Number(purchase.expected_selling_price))}</td>
+                {isSuperAdmin && (
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditPurchase(purchase)} />
+                      <ActionIconButton icon={Trash2} label="Fshi" onClick={() => onDeletePurchase(purchase)} tone="danger" />
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      {!purchases.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka blerje të regjistruara.</p>}
     </section>
   )
 }
@@ -1450,6 +1579,14 @@ function InfoPanel({ text, title }: { text: string; title: string }) {
 
 function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
   return <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/40 p-4"><div className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-md bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><h2 className="text-base font-semibold">{title}</h2><button className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button"><X size={18} /></button></div><div className="max-h-[calc(92vh-57px)] overflow-y-auto p-4">{children}</div></div></div>
+}
+
+function ActionIconButton({ icon: Icon, label, onClick, tone = 'neutral' }: { icon: typeof Pencil; label: string; onClick: () => void; tone?: 'neutral' | 'danger' }) {
+  const className = tone === 'danger'
+    ? 'inline-flex h-9 items-center gap-1 rounded-md border border-rose-200 px-2 text-xs font-medium text-rose-700 hover:bg-rose-50'
+    : 'inline-flex h-9 items-center gap-1 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-700 hover:bg-slate-50'
+
+  return <button className={className} onClick={onClick} type="button"><Icon size={14} />{label}</button>
 }
 
 function Field({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) {
@@ -1482,7 +1619,7 @@ function paginationMeta<T>(page: PaginatedApiResponse<T>): PaginationMeta {
 }
 
 function cashTypeLabel(type: string) {
-  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje', customer_purchase_payout: 'Blerje nga klienti', customer_purchase_adjustment: 'Korrigjim blerjeje', customer_purchase_reversal: 'Kthim/fshirje blerjeje' } as Record<string, string>)[type] ?? type
+  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', sale_adjustment: 'Korrigjim shitjeje', sale_reversal: 'Kthim/fshirje shitjeje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje', customer_purchase_payout: 'Blerje nga klienti', customer_purchase_adjustment: 'Korrigjim blerjeje', customer_purchase_reversal: 'Kthim/fshirje blerjeje' } as Record<string, string>)[type] ?? type
 }
 
 function paymentLabel(method: string) {
@@ -1505,6 +1642,57 @@ function inventoryOptionLabel(item: InventoryApiItem) {
   return `${item.brand} ${item.model} · IMEI: ${item.imei ?? 'Pa IMEI'} · ${formatEuro(Number(item.selling_price))}`
 }
 
+function inventoryItemLabel(item?: InventoryApiItem | null) {
+  if (!item) return <span className="text-slate-500">Nuk ka të dhëna</span>
+
+  return (
+    <div>
+      <p className="font-semibold text-slate-900">{item.brand} {item.model}</p>
+      <p className="text-xs text-slate-500">IMEI: {item.imei ?? 'Pa IMEI'}{item.storage ? ` · ${item.storage}` : ''}{item.color ? ` · ${item.color}` : ''}</p>
+    </div>
+  )
+}
+
+function salePrimaryItem(sale?: SaleApiRecord | null) {
+  return sale?.items?.[0]
+}
+
+function saleItemDetails(sale: SaleApiRecord) {
+  const item = salePrimaryItem(sale)
+
+  if (item?.inventory_item) return inventoryItemLabel(item.inventory_item)
+
+  return (
+    <div>
+      <p className="font-semibold text-slate-900">{saleItemsLabel(sale)}</p>
+      <p className="text-xs text-slate-500">{item?.inventory_item_id ? `ID stoku: ${item.inventory_item_id}` : 'Pa lidhje stoku'}</p>
+    </div>
+  )
+}
+
+function exchangeIncomingItems(exchange: ExchangeApiRecord) {
+  const rows = exchange.incoming_items?.map((incoming) => incoming.item).filter(Boolean) as InventoryApiItem[] | undefined
+
+  if (rows?.length) return rows
+  if (exchange.incoming_item) return [exchange.incoming_item]
+
+  return []
+}
+
+function exchangeCashLabel(exchange: ExchangeApiRecord) {
+  const amount = formatEuro(Number(exchange.cash_difference))
+
+  if (exchange.cash_direction === 'customer_pays') {
+    return <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">Klienti pagoi {amount}</span>
+  }
+
+  if (exchange.cash_direction === 'store_pays') {
+    return <span className="rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700">Dyqani pagoi {amount}</span>
+  }
+
+  return <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">Pa cash</span>
+}
+
 function reportPeriodLabel(period: ReportPeriod) {
   return ({ daily: 'Ditor', weekly: 'Javor', monthly: 'Mujor', custom: 'Periudhë e personalizuar' } as Record<ReportPeriod, string>)[period]
 }
@@ -1514,7 +1702,7 @@ function reportPeriodRangeLabel(period: ReportPeriod, range: { from: string; to:
   const rangeText = `${formatDateLabel(effectiveRange.from)} - ${formatDateLabel(effectiveRange.to)}`
 
   if (period === 'daily') return `Sot, ${formatDateLabel(effectiveRange.from)}`
-  if (period === 'weekly') return `Java aktuale: ${rangeText}`
+  if (period === 'weekly') return `7 ditët e fundit: ${rangeText}`
   if (period === 'monthly') return `Muaji aktual: ${rangeText}`
 
   return rangeText
@@ -1539,8 +1727,8 @@ function reportRows(sales: SaleApiRecord[]) {
   ])
 }
 
-function saleItemsLabel(sale: SaleApiRecord) {
-  return sale.items?.length ? sale.items.map((item) => item.description).join(', ') : 'Artikull'
+function saleItemsLabel(sale?: SaleApiRecord) {
+  return sale?.items?.length ? sale.items.map((item) => item.description).join(', ') : 'Artikull'
 }
 
 function saleItemsQuantity(sale: SaleApiRecord) {
@@ -1738,13 +1926,9 @@ function reportRangeForPeriod(period: ReportPeriod, range: { from: string; to: s
 
   if (period === 'weekly') {
     const start = new Date(now)
-    const day = now.getDay() || 7
-    start.setDate(now.getDate() - day + 1)
+    start.setDate(now.getDate() - 6)
 
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
-
-    return { from: dateInputValue(start), to: dateInputValue(end) }
+    return { from: dateInputValue(start), to: dateInputValue(now) }
   }
 
   if (period === 'monthly') {

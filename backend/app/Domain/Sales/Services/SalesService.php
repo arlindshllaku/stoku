@@ -137,8 +137,92 @@ class SalesService
         });
     }
 
+    public function updateNormalSale(Store $store, Sale $sale, array $data, User $user): Sale
+    {
+        return DB::transaction(function () use ($store, $sale, $data, $user): Sale {
+            $sale = Sale::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($sale->id);
+            $this->ensureNormalSale($sale);
+
+            $saleItem = SaleItem::query()->where('sale_id', $sale->id)->lockForUpdate()->firstOrFail();
+            $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($saleItem->inventory_item_id);
+            $old = $sale->load('items.inventoryItem')->toArray();
+
+            if ($item->status !== 'sold') {
+                throw ValidationException::withMessages([
+                    'sale' => 'Shitja nuk mund të ndryshohet sepse telefoni nuk është më i shënuar si i shitur.',
+                ]);
+            }
+
+            $subtotal = (float) ($data['selling_price'] ?? $sale->subtotal);
+            $discount = (float) ($data['discount'] ?? $sale->discount);
+            $total = max($subtotal - $discount, 0);
+            $profit = $total - (float) $saleItem->unit_cost;
+            $cashDifference = $total - (float) $sale->total;
+
+            $sale->update([
+                'subtotal' => $subtotal,
+                'discount' => $discount,
+                'total' => $total,
+                'payment_method' => $data['payment_method'] ?? $sale->payment_method,
+                'profit' => $profit,
+            ]);
+
+            $saleItem->update([
+                'unit_price' => $total,
+                'profit' => $profit,
+            ]);
+
+            if ($cashDifference > 0) {
+                $this->cashService->record($store, 'sale_adjustment', 'in', $cashDifference, $user, $sale, 'Korrigjim shitjeje');
+            }
+
+            if ($cashDifference < 0) {
+                $this->cashService->record($store, 'sale_reversal', 'out', abs($cashDifference), $user, $sale, 'Kthim nga korrigjimi i shitjes');
+            }
+
+            $this->auditLogger->log('sale.updated', $store->id, $sale, $old, $sale->fresh(['items.inventoryItem'])->toArray());
+
+            return $sale->fresh(['items.inventoryItem']);
+        });
+    }
+
+    public function deleteNormalSale(Store $store, Sale $sale, User $user): void
+    {
+        DB::transaction(function () use ($store, $sale, $user): void {
+            $sale = Sale::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($sale->id);
+            $this->ensureNormalSale($sale);
+
+            $saleItem = SaleItem::query()->where('sale_id', $sale->id)->lockForUpdate()->firstOrFail();
+            $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($saleItem->inventory_item_id);
+            $old = $sale->load('items.inventoryItem')->toArray();
+
+            if ($item->status === 'sold') {
+                $this->inventoryService->changeStatus($store, $item, 'in_stock', 'sale_reversal', 'in', $user, $sale, 'Fshirje shitjeje');
+            }
+
+            if ((float) $sale->total > 0) {
+                $this->cashService->record($store, 'sale_reversal', 'out', (float) $sale->total, $user, $sale, 'Fshirje shitjeje');
+            }
+
+            $sale->delete();
+            $this->auditLogger->log('sale.deleted', $store->id, $sale, $old, [
+                'inventory_item_id' => $item->id,
+                'total' => $old['total'] ?? null,
+            ]);
+        });
+    }
+
     private function nextSaleNumber(Store $store): string
     {
         return $this->documentNumberService->next($store, 'sale', 'S');
+    }
+
+    private function ensureNormalSale(Sale $sale): void
+    {
+        if ($sale->type !== 'normal') {
+            throw ValidationException::withMessages([
+                'sale' => 'Vetëm shitjet normale mund të editohen ose fshihen nga ky ekran.',
+            ]);
+        }
     }
 }

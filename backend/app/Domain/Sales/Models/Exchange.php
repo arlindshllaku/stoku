@@ -2,7 +2,9 @@
 
 namespace App\Domain\Sales\Models;
 
+use App\Domain\Inventory\Models\InventoryItem;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Exchange extends Model
@@ -23,6 +25,27 @@ class Exchange extends Model
         'created_by',
         'created_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'cash_difference' => 'decimal:2',
+            'estimated_incoming_value' => 'decimal:2',
+            'outgoing_sale_value' => 'decimal:2',
+            'profit_loss' => 'decimal:2',
+            'created_at' => 'datetime',
+        ];
+    }
+
+    public function outgoingItem(): BelongsTo
+    {
+        return $this->belongsTo(InventoryItem::class, 'outgoing_item_id');
+    }
+
+    public function incomingItem(): BelongsTo
+    {
+        return $this->belongsTo(InventoryItem::class, 'incoming_item_id');
+    }
 
     public function incomingItems(): HasMany
     {

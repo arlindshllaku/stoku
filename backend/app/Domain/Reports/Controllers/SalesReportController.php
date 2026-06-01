@@ -56,8 +56,8 @@ class SalesReportController extends Controller
 
         if ($period === 'weekly') {
             return [
-                $now->copy()->startOfWeek(),
-                $now->copy()->endOfWeek(),
+                $now->copy()->subDays(6)->startOfDay(),
+                $now->copy()->endOfDay(),
             ];
         }
 
