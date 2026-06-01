@@ -30,6 +30,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? `${window.location.protoco
 type StoreRecord = { id: number; name: string }
 type InventoryApiItem = {
   id: number
+  category_id?: number | null
+  supplier_id?: number | null
   imei: string | null
   brand: string
   model: string
@@ -39,6 +41,8 @@ type InventoryApiItem = {
   selling_price: string
   sold_price?: string | null
   status: string
+  date_added?: string | null
+  notes?: string | null
 }
 type StoreUser = { id: number; name: string; email: string; status: string; roles?: UserRole[] }
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
@@ -54,11 +58,12 @@ type PaginationMeta = { current_page: number; last_page: number; per_page: numbe
 type PaginatedApiResponse<T> = PaginationMeta & { data: T[]; summary?: InventorySummary }
 type ReportApiResponse<T> = { data: T[]; summary?: Record<string, number | string> }
 type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
-type ModalMode = 'inventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'editSale' | 'store' | 'exchange' | 'purchase' | 'editPurchase' | null
+type ModalMode = 'inventory' | 'editInventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'editSale' | 'store' | 'exchange' | 'purchase' | 'editPurchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const emptyPaginationMeta: PaginationMeta = { current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null }
 const emptyInventorySummary: InventorySummary = { total_items: 0, stock_count: 0, stock_value: 0 }
+const emptyInventoryForm = { brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '', status: 'in_stock', date_added: '', notes: '' }
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Paneli', description: 'Pamje e përgjithshme e dyqanit' },
@@ -93,6 +98,15 @@ function App() {
   const [inventorySummary, setInventorySummary] = useState<InventorySummary>(emptyInventorySummary)
   const [inventoryPage, setInventoryPage] = useState(1)
   const [inventoryPerPage, setInventoryPerPage] = useState(20)
+  const [salesMeta, setSalesMeta] = useState<PaginationMeta>(emptyPaginationMeta)
+  const [salesPage, setSalesPage] = useState(1)
+  const [salesPerPage, setSalesPerPage] = useState(20)
+  const [exchangesMeta, setExchangesMeta] = useState<PaginationMeta>(emptyPaginationMeta)
+  const [exchangesPage, setExchangesPage] = useState(1)
+  const [exchangesPerPage, setExchangesPerPage] = useState(20)
+  const [purchasesMeta, setPurchasesMeta] = useState<PaginationMeta>(emptyPaginationMeta)
+  const [purchasesPage, setPurchasesPage] = useState(1)
+  const [purchasesPerPage, setPurchasesPerPage] = useState(20)
   const [users, setUsers] = useState<StoreUser[]>([])
   const [cash, setCash] = useState<CashState>({})
   const [sales, setSales] = useState<SaleApiRecord[]>([])
@@ -108,8 +122,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [storeForm, setStoreForm] = useState({ name: '', address: '', phone: '', email: '', currency: 'EUR', timezone: 'Europe/Belgrade' })
-  const [inventoryForm, setInventoryForm] = useState({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
+  const [inventoryForm, setInventoryForm] = useState({ ...emptyInventoryForm })
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'employee', status: 'active' })
+  const [editingInventory, setEditingInventory] = useState<InventoryApiItem | null>(null)
   const [editingUser, setEditingUser] = useState<StoreUser | null>(null)
   const [editingSale, setEditingSale] = useState<SaleApiRecord | null>(null)
   const [editingPurchase, setEditingPurchase] = useState<PurchaseApiRecord | null>(null)
@@ -273,6 +288,18 @@ function App() {
     return `${activeStorePath}/inventory${params.size ? `?${params.toString()}` : ''}`
   }
 
+  function salesPath(page = salesPage, perPage = salesPerPage) {
+    return `${activeStorePath}/sales?${new URLSearchParams({ page: String(page), per_page: String(perPage) }).toString()}`
+  }
+
+  function exchangesPath(page = exchangesPage, perPage = exchangesPerPage) {
+    return `${activeStorePath}/exchanges?${new URLSearchParams({ page: String(page), per_page: String(perPage) }).toString()}`
+  }
+
+  function purchasesPath(page = purchasesPage, perPage = purchasesPerPage) {
+    return `${activeStorePath}/purchases?${new URLSearchParams({ page: String(page), per_page: String(perPage) }).toString()}`
+  }
+
   function salesReportPath(period = reportPeriod, range = reportRange) {
     const effectiveRange = reportRangeForPeriod(period, range)
     const params = new URLSearchParams({
@@ -290,6 +317,21 @@ function App() {
     setInventorySummary(result.summary ?? emptyInventorySummary)
   }
 
+  function applySalesResult(result: PaginatedApiResponse<SaleApiRecord>) {
+    setSales(result.data)
+    setSalesMeta(paginationMeta(result))
+  }
+
+  function applyExchangesResult(result: PaginatedApiResponse<ExchangeApiRecord>) {
+    setExchanges(result.data)
+    setExchangesMeta(paginationMeta(result))
+  }
+
+  function applyPurchasesResult(result: PaginatedApiResponse<PurchaseApiRecord>) {
+    setPurchases(result.data)
+    setPurchasesMeta(paginationMeta(result))
+  }
+
   async function loadInventoryData(page = inventoryPage) {
     if (!selectedStoreId) return
 
@@ -304,6 +346,66 @@ function App() {
       applyInventoryResult(result)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i inventarit dështoi.')
+    }
+  }
+
+  async function loadSalesData(page = salesPage, perPage = salesPerPage) {
+    if (!selectedStoreId) return
+
+    try {
+      const result = await api<PaginatedApiResponse<SaleApiRecord>>(salesPath(page, perPage))
+
+      if (!result.data.length && result.current_page > 1) {
+        setSalesPage(result.current_page - 1)
+        void loadSalesData(result.current_page - 1, perPage)
+        return
+      }
+
+      setSalesPage(result.current_page)
+      setSalesPerPage(Number(result.per_page))
+      applySalesResult(result)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ngarkimi i shitjeve dështoi.')
+    }
+  }
+
+  async function loadExchangesData(page = exchangesPage, perPage = exchangesPerPage) {
+    if (!selectedStoreId) return
+
+    try {
+      const result = await api<PaginatedApiResponse<ExchangeApiRecord>>(exchangesPath(page, perPage))
+
+      if (!result.data.length && result.current_page > 1) {
+        setExchangesPage(result.current_page - 1)
+        void loadExchangesData(result.current_page - 1, perPage)
+        return
+      }
+
+      setExchangesPage(result.current_page)
+      setExchangesPerPage(Number(result.per_page))
+      applyExchangesResult(result)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ngarkimi i ndërrimeve dështoi.')
+    }
+  }
+
+  async function loadPurchasesData(page = purchasesPage, perPage = purchasesPerPage) {
+    if (!selectedStoreId) return
+
+    try {
+      const result = await api<PaginatedApiResponse<PurchaseApiRecord>>(purchasesPath(page, perPage))
+
+      if (!result.data.length && result.current_page > 1) {
+        setPurchasesPage(result.current_page - 1)
+        void loadPurchasesData(result.current_page - 1, perPage)
+        return
+      }
+
+      setPurchasesPage(result.current_page)
+      setPurchasesPerPage(Number(result.per_page))
+      applyPurchasesResult(result)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ngarkimi i blerjeve dështoi.')
     }
   }
 
@@ -411,16 +513,16 @@ function App() {
         api<PaginatedApiResponse<InventoryApiItem>>(inventoryPath(page)),
         api<{ data: Array<StoreUser> }>(`${activeStorePath}/users`).catch(() => ({ data: [] })),
         loadCashState(),
-        api<PaginatedApiResponse<SaleApiRecord>>(`${activeStorePath}/sales?per_page=20`),
-        api<PaginatedApiResponse<ExchangeApiRecord>>(`${activeStorePath}/exchanges?per_page=20`),
-        api<PaginatedApiResponse<PurchaseApiRecord>>(`${activeStorePath}/purchases?per_page=20`),
+        api<PaginatedApiResponse<SaleApiRecord>>(salesPath(salesPage, salesPerPage)),
+        api<PaginatedApiResponse<ExchangeApiRecord>>(exchangesPath(exchangesPage, exchangesPerPage)),
+        api<PaginatedApiResponse<PurchaseApiRecord>>(purchasesPath(purchasesPage, purchasesPerPage)),
       ])
       applyInventoryResult(inventoryResult)
       setUsers(usersResult.data)
       setCash(cashResult)
-      setSales(salesResult.data)
-      setExchanges(exchangesResult.data)
-      setPurchases(purchasesResult.data)
+      applySalesResult(salesResult)
+      applyExchangesResult(exchangesResult)
+      applyPurchasesResult(purchasesResult)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ngarkimi i të dhënave dështoi.')
     } finally {
@@ -439,11 +541,13 @@ function App() {
           purchase_price: inventoryForm.purchase_price ? Number(inventoryForm.purchase_price) : undefined,
           selling_price: inventoryForm.selling_price ? Number(inventoryForm.selling_price) : undefined,
           status: 'in_stock',
+          date_added: inventoryForm.date_added || undefined,
+          notes: inventoryForm.notes || undefined,
         }),
         method: 'POST',
       })
       setModalMode(null)
-      setInventoryForm({ brand: '', model: '', imei: '', color: '', storage: '', purchase_price: '', selling_price: '' })
+      resetInventoryForm()
       setNotice('Artikulli u ruajt në backend.')
       setInventoryPage(1)
       await loadStoreData(1)
@@ -600,10 +704,41 @@ function App() {
       setModalMode(null)
       resetSaleForms()
       setNotice('Shitja u regjistrua në backend dhe artikulli doli nga stoku.')
+      setSalesPage(1)
       await loadStoreData()
+      await loadSalesData(1)
       setActiveView('Shitjet')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Regjistrimi i shitjes dështoi.')
+    }
+  }
+
+  async function updateInventoryItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId || !editingInventory) return
+
+    try {
+      await api(`${activeStorePath}/inventory/${editingInventory.id}`, {
+        body: JSON.stringify({
+          ...inventoryForm,
+          imei: inventoryForm.imei.trim() || null,
+          color: inventoryForm.color.trim() || null,
+          storage: inventoryForm.storage.trim() || null,
+          purchase_price: inventoryForm.purchase_price ? Number(inventoryForm.purchase_price) : undefined,
+          selling_price: inventoryForm.selling_price ? Number(inventoryForm.selling_price) : undefined,
+          date_added: inventoryForm.date_added || undefined,
+          notes: inventoryForm.notes.trim() || null,
+        }),
+        method: 'PUT',
+      })
+      setModalMode(null)
+      resetInventoryForm()
+      setNotice('Artikulli u përditësua.')
+      await loadInventoryData(inventoryPage)
+      await loadStoreData()
+      setActiveView('Inventari')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Përditësimi i artikullit dështoi.')
     }
   }
 
@@ -652,6 +787,28 @@ function App() {
     setModalMode('editSale')
   }
 
+  function openEditInventory(item: InventoryApiItem) {
+    setEditingInventory(item)
+    setInventoryForm({
+      brand: item.brand ?? '',
+      model: item.model ?? '',
+      imei: item.imei ?? '',
+      color: item.color ?? '',
+      storage: item.storage ?? '',
+      purchase_price: item.purchase_price ?? '',
+      selling_price: item.selling_price ?? '',
+      status: item.status ?? 'in_stock',
+      date_added: item.date_added ? item.date_added.slice(0, 10) : '',
+      notes: item.notes ?? '',
+    })
+    setModalMode('editInventory')
+  }
+
+  function resetInventoryForm() {
+    setEditingInventory(null)
+    setInventoryForm({ ...emptyInventoryForm })
+  }
+
   async function createExchange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedStoreId) return
@@ -698,7 +855,9 @@ function App() {
       setModalMode(null)
       resetExchangeForm()
       setNotice('Ndërrimi u regjistrua dhe arka/stoku u përditësuan.')
+      setExchangesPage(1)
       await loadStoreData()
+      await loadExchangesData(1)
       setActiveView('Ndërrimet')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Regjistrimi i ndërrimit dështoi.')
@@ -717,7 +876,9 @@ function App() {
       setModalMode(null)
       resetPurchaseForm()
       setNotice('Blerja u regjistrua: telefoni hyri në stok dhe cash-i doli nga arka.')
+      setPurchasesPage(1)
       await loadStoreData()
+      await loadPurchasesData(1)
       setActiveView('Blerjet')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Regjistrimi i blerjes dështoi.')
@@ -847,8 +1008,14 @@ function App() {
     setReportSales([])
     setExchanges([])
     setInventoryMeta(emptyPaginationMeta)
+    setSalesMeta(emptyPaginationMeta)
+    setExchangesMeta(emptyPaginationMeta)
+    setPurchasesMeta(emptyPaginationMeta)
     setInventorySummary(emptyInventorySummary)
     setInventoryPage(1)
+    setSalesPage(1)
+    setExchangesPage(1)
+    setPurchasesPage(1)
     setStockOptionSearch('')
     setUsers([])
     setSales([])
@@ -884,6 +1051,14 @@ function App() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Përditësimi i statusit dështoi.')
     }
+  }
+
+  function selectStore(storeId: number) {
+    setInventoryPage(1)
+    setSalesPage(1)
+    setExchangesPage(1)
+    setPurchasesPage(1)
+    setSelectedStoreId(storeId)
   }
 
   if (!token) {
@@ -928,7 +1103,7 @@ function App() {
                 <p className="text-sm text-slate-500">{activeNav.description}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => { setInventoryPage(1); setSelectedStoreId(Number(event.target.value)) }} value={selectedStoreId ?? ''}>
+                <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => selectStore(Number(event.target.value))} value={selectedStoreId ?? ''}>
                   {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                 </select>
                 {isSuperAdmin && (
@@ -937,7 +1112,7 @@ function App() {
                     Dyqan i ri
                   </button>
                 )}
-                <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={() => setModalMode('inventory')} type="button">
+                <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={() => { resetInventoryForm(); setModalMode('inventory') }} type="button">
                   <PackagePlus size={17} />
                   Artikull i ri
                 </button>
@@ -954,13 +1129,13 @@ function App() {
               <Metrics metrics={metrics} />
               <DailyCashSummary balance={Number(cash.register?.current_balance ?? 0)} cashIn={todaysCash.in} cashOut={todaysCash.out} />
               <DashboardCharts transactions={cashTransactions} weeklyCash={weeklyCash} />
-              <InventoryTable inventory={inventory} meta={inventoryMeta} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
+              <InventoryTable inventory={inventory} meta={inventoryMeta} onEditInventory={openEditInventory} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
             </>
           )}
-          {activeView === 'Inventari' && <InventoryTable inventory={inventory} meta={inventoryMeta} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
-          {activeView === 'Shitjet' && <SalesView isSuperAdmin={isSuperAdmin} onDeleteSale={deleteSale} onEditSale={openEditSale} sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); resetSaleForms(); setModalMode('sale') }} />}
-          {activeView === 'Ndërrimet' && <ExchangeView exchanges={exchanges} stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} />}
-          {activeView === 'Blerjet' && <PurchasesView isSuperAdmin={isSuperAdmin} onDeletePurchase={deletePurchase} onEditPurchase={openEditPurchase} purchases={purchases} onOpenPurchase={() => { resetPurchaseForm(); setModalMode('purchase') }} />}
+          {activeView === 'Inventari' && <InventoryTable inventory={inventory} meta={inventoryMeta} onEditInventory={openEditInventory} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
+          {activeView === 'Shitjet' && <SalesView isSuperAdmin={isSuperAdmin} meta={salesMeta} onDeleteSale={deleteSale} onEditSale={openEditSale} onPageChange={loadSalesData} onPerPageChange={(perPage) => { setSalesPerPage(perPage); void loadSalesData(1, perPage) }} sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); resetSaleForms(); setModalMode('sale') }} perPage={salesPerPage} />}
+          {activeView === 'Ndërrimet' && <ExchangeView exchanges={exchanges} meta={exchangesMeta} onPageChange={loadExchangesData} onPerPageChange={(perPage) => { setExchangesPerPage(perPage); void loadExchangesData(1, perPage) }} stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} perPage={exchangesPerPage} />}
+          {activeView === 'Blerjet' && <PurchasesView isSuperAdmin={isSuperAdmin} meta={purchasesMeta} onDeletePurchase={deletePurchase} onEditPurchase={openEditPurchase} onPageChange={loadPurchasesData} onPerPageChange={(perPage) => { setPurchasesPerPage(perPage); void loadPurchasesData(1, perPage) }} purchases={purchases} onOpenPurchase={() => { resetPurchaseForm(); setModalMode('purchase') }} perPage={purchasesPerPage} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={reportSales} setPeriod={changeReportPeriod} setRange={changeReportRange} />}
           {activeView === 'Përdoruesit' && <UsersView users={users} onDeleteUser={deleteUser} onEditUser={openEditUser} onOpenUser={() => setModalMode('user')} />}
@@ -969,7 +1144,7 @@ function App() {
       </section>
 
       {modalMode === 'inventory' && (
-        <Modal title="Shto artikull të ri" onClose={() => setModalMode(null)}>
+        <Modal title="Shto artikull të ri" onClose={() => { setModalMode(null); resetInventoryForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createInventoryItem}>
             {[
               ['brand', 'Brendi'],
@@ -982,7 +1157,37 @@ function App() {
             ].map(([key, label]) => (
               <Field key={key} label={label} value={inventoryForm[key as keyof typeof inventoryForm]} onChange={(value) => setInventoryForm((form) => ({ ...form, [key]: value }))} />
             ))}
-            <SubmitRow submitLabel="Ruaj artikullin" onCancel={() => setModalMode(null)} />
+            <SubmitRow submitLabel="Ruaj artikullin" onCancel={() => { setModalMode(null); resetInventoryForm() }} />
+          </form>
+        </Modal>
+      )}
+
+      {modalMode === 'editInventory' && (
+        <Modal title="Edito artikull" onClose={() => { setModalMode(null); resetInventoryForm() }}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={updateInventoryItem}>
+            <Field label="Brendi" value={inventoryForm.brand} onChange={(value) => setInventoryForm((form) => ({ ...form, brand: value }))} />
+            <Field label="Modeli" value={inventoryForm.model} onChange={(value) => setInventoryForm((form) => ({ ...form, model: value }))} />
+            <Field label="IMEI" value={inventoryForm.imei} onChange={(value) => setInventoryForm((form) => ({ ...form, imei: value }))} />
+            <Field label="Ngjyra" value={inventoryForm.color} onChange={(value) => setInventoryForm((form) => ({ ...form, color: value }))} />
+            <Field label="Memoria" value={inventoryForm.storage} onChange={(value) => setInventoryForm((form) => ({ ...form, storage: value }))} />
+            <Field label="Çmimi i blerjes" value={inventoryForm.purchase_price} onChange={(value) => setInventoryForm((form) => ({ ...form, purchase_price: value }))} />
+            <Field label="Çmimi i shitjes" value={inventoryForm.selling_price} onChange={(value) => setInventoryForm((form) => ({ ...form, selling_price: value }))} />
+            <Field label="Data e hyrjes" type="date" value={inventoryForm.date_added} onChange={(value) => setInventoryForm((form) => ({ ...form, date_added: value }))} />
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-slate-700">Statusi</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setInventoryForm((form) => ({ ...form, status: event.target.value }))} value={inventoryForm.status}>
+                <option value="in_stock">Në stok</option>
+                <option value="reserved">Rezervuar</option>
+                <option value="damaged">Dëmtuar</option>
+                <option value="returned">Kthyer</option>
+                {(inventoryForm.status === 'sold' || inventoryForm.status === 'exchanged_out') && <option value={inventoryForm.status}>{statusLabel(inventoryForm.status)}</option>}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm sm:col-span-2">
+              <span className="font-medium text-slate-700">Shënim</span>
+              <textarea className="min-h-24 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600" onChange={(event) => setInventoryForm((form) => ({ ...form, notes: event.target.value }))} value={inventoryForm.notes} />
+            </label>
+            <SubmitRow submitLabel="Ruaj ndryshimet" onCancel={() => { setModalMode(null); resetInventoryForm() }} />
           </form>
         </Modal>
       )}
@@ -1254,6 +1459,7 @@ function DashboardCharts({ transactions, weeklyCash }: { transactions: CashTrans
 function InventoryTable({
   inventory,
   meta,
+  onEditInventory,
   onExport,
   onPageChange,
   onPerPageChange,
@@ -1266,6 +1472,7 @@ function InventoryTable({
 }: {
   inventory: InventoryApiItem[]
   meta: PaginationMeta
+  onEditInventory: (item: InventoryApiItem) => void
   onExport: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
@@ -1317,7 +1524,9 @@ function InventoryTable({
             {inventory.map((item) => (
               <tr className="hover:bg-slate-50" key={item.id}>
                 <td className="px-4 py-3 font-mono text-xs text-slate-600">{item.imei ?? 'Nuk ka'}</td>
-                <td className="px-4 py-3 font-medium">{item.brand} {item.model}</td>
+                <td className="px-4 py-3">
+                  <button className="text-left font-semibold text-blue-700 hover:text-blue-900 hover:underline" onClick={() => onEditInventory(item)} type="button">{item.brand} {item.model}</button>
+                </td>
                 <td className="px-4 py-3">{item.color ?? '-'}</td>
                 <td className="px-4 py-3">{item.storage ?? '-'}</td>
                 <td className="px-4 py-3">{formatEuro(Number(item.purchase_price))}</td>
@@ -1347,15 +1556,14 @@ function InventoryTable({
             <option value={50}>50 / faqe</option>
             <option value={100}>100 / faqe</option>
           </select>
-          <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50" disabled={!canGoBack} onClick={() => onPageChange(meta.current_page - 1)} type="button">Mbrapa</button>
-          <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50" disabled={!canGoForward} onClick={() => onPageChange(meta.current_page + 1)} type="button">Përpara</button>
+          <PaginationButtons canGoBack={canGoBack} canGoForward={canGoForward} currentPage={meta.current_page} lastPage={meta.last_page} onPageChange={onPageChange} />
         </div>
       </div>
     </section>
   )
 }
 
-function SalesView({ isSuperAdmin, onDeleteSale, onEditSale, onOpenSale, sales, stockCount }: { isSuperAdmin: boolean; onDeleteSale: (sale: SaleApiRecord) => void; onEditSale: (sale: SaleApiRecord) => void; onOpenSale: () => void; sales: SaleApiRecord[]; stockCount: number }) {
+function SalesView({ isSuperAdmin, meta, onDeleteSale, onEditSale, onOpenSale, onPageChange, onPerPageChange, perPage, sales, stockCount }: { isSuperAdmin: boolean; meta: PaginationMeta; onDeleteSale: (sale: SaleApiRecord) => void; onEditSale: (sale: SaleApiRecord) => void; onOpenSale: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; sales: SaleApiRecord[]; stockCount: number }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1398,6 +1606,7 @@ function SalesView({ isSuperAdmin, onDeleteSale, onEditSale, onOpenSale, sales, 
         </table>
       </div>
       {!sales.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka shitje të regjistruara.</p>}
+      <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
     </section>
   )
 }
@@ -1484,7 +1693,7 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   )
 }
 
-function ExchangeView({ exchanges, onOpenExchange, stockCount }: { exchanges: ExchangeApiRecord[]; onOpenExchange: () => void; stockCount: number }) {
+function ExchangeView({ exchanges, meta, onOpenExchange, onPageChange, onPerPageChange, perPage, stockCount }: { exchanges: ExchangeApiRecord[]; meta: PaginationMeta; onOpenExchange: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; stockCount: number }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1516,11 +1725,12 @@ function ExchangeView({ exchanges, onOpenExchange, stockCount }: { exchanges: Ex
         </table>
       </div>
       {!exchanges.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka ndërrime të regjistruara.</p>}
+      <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
     </section>
   )
 }
 
-function PurchasesView({ isSuperAdmin, onDeletePurchase, onEditPurchase, onOpenPurchase, purchases }: { isSuperAdmin: boolean; onDeletePurchase: (purchase: PurchaseApiRecord) => void; onEditPurchase: (purchase: PurchaseApiRecord) => void; onOpenPurchase: () => void; purchases: PurchaseApiRecord[] }) {
+function PurchasesView({ isSuperAdmin, meta, onDeletePurchase, onEditPurchase, onOpenPurchase, onPageChange, onPerPageChange, perPage, purchases }: { isSuperAdmin: boolean; meta: PaginationMeta; onDeletePurchase: (purchase: PurchaseApiRecord) => void; onEditPurchase: (purchase: PurchaseApiRecord) => void; onOpenPurchase: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; purchases: PurchaseApiRecord[] }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1561,12 +1771,46 @@ function PurchasesView({ isSuperAdmin, onDeletePurchase, onEditPurchase, onOpenP
         </table>
       </div>
       {!purchases.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka blerje të regjistruara.</p>}
+      <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
     </section>
   )
 }
 
 function CashView({ cash, onOpenCash }: { cash: CashState; onOpenCash: (type: string) => void }) {
   return <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold">Arka</h2><p className="text-sm text-slate-500">Gjendja aktuale: {formatEuro(Number(cash.register?.current_balance ?? 0))}</p></div><div className="flex gap-2"><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('deposit')} type="button">Depozitim</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('withdraw')} type="button">Tërheqje</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('expense')} type="button">Shpenzim</button></div></div></section>
+}
+
+function TablePagination({ meta, onPageChange, onPerPageChange, perPage }: { meta: PaginationMeta; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number }) {
+  const canGoBack = meta.current_page > 1
+  const canGoForward = meta.current_page < meta.last_page
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-slate-500">Faqja {meta.current_page} / {meta.last_page} · {meta.total} rezultate</p>
+      <div className="flex flex-wrap gap-2 sm:justify-end">
+        <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => onPerPageChange(Number(event.target.value))} value={perPage}>
+          <option value={10}>10 / faqe</option>
+          <option value={20}>20 / faqe</option>
+          <option value={50}>50 / faqe</option>
+          <option value={100}>100 / faqe</option>
+        </select>
+        <PaginationButtons canGoBack={canGoBack} canGoForward={canGoForward} currentPage={meta.current_page} lastPage={meta.last_page} onPageChange={onPageChange} />
+      </div>
+    </div>
+  )
+}
+
+function PaginationButtons({ canGoBack, canGoForward, currentPage, lastPage, onPageChange }: { canGoBack: boolean; canGoForward: boolean; currentPage: number; lastPage: number; onPageChange: (page: number) => void }) {
+  const buttonClass = 'h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50'
+
+  return (
+    <>
+      <button className={buttonClass} disabled={!canGoBack} onClick={() => onPageChange(1)} type="button">Fillimi</button>
+      <button className={buttonClass} disabled={!canGoBack} onClick={() => onPageChange(currentPage - 1)} type="button">Mbrapa</button>
+      <button className={buttonClass} disabled={!canGoForward} onClick={() => onPageChange(currentPage + 1)} type="button">Përpara</button>
+      <button className={buttonClass} disabled={!canGoForward} onClick={() => onPageChange(lastPage)} type="button">Fundi</button>
+    </>
+  )
 }
 
 function UsersView({ onDeleteUser, onEditUser, onOpenUser, users }: { onDeleteUser: (user: StoreUser) => void; onEditUser: (user: StoreUser) => void; onOpenUser: () => void; users: StoreUser[] }) {
@@ -1590,7 +1834,7 @@ function ActionIconButton({ icon: Icon, label, onClick, tone = 'neutral' }: { ic
 }
 
 function Field({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) {
-  const optionalLabels = ['IMEI', 'IMEI 2', 'Shënim', 'Ngjyra', 'Ngjyra 2', 'Memoria', 'Memoria 2', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit', 'Çmimi i blerjes', 'Çmimi i shitjes', 'Vlera e blerjes hyrëse', 'Vlera e blerjes hyrëse 2', 'Çmimi i shitjes hyrëse', 'Çmimi i shitjes hyrëse 2']
+  const optionalLabels = ['IMEI', 'IMEI 2', 'Shënim', 'Ngjyra', 'Ngjyra 2', 'Memoria', 'Memoria 2', 'Data e hyrjes', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit', 'Çmimi i blerjes', 'Çmimi i shitjes', 'Vlera e blerjes hyrëse', 'Vlera e blerjes hyrëse 2', 'Çmimi i shitjes hyrëse', 'Çmimi i shitjes hyrëse 2']
 
   return <label className="space-y-1 text-sm"><span className="font-medium text-slate-700">{label}</span><input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => onChange(event.target.value)} required={!optionalLabels.includes(label)} type={type} value={value} /></label>
 }
