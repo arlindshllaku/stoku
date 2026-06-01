@@ -45,7 +45,7 @@ class SalesReportController extends Controller
 
     private function range(string $period, ?string $from, ?string $to): array
     {
-        if ($period === 'custom') {
+        if ($period === 'custom' || $from !== null || $to !== null) {
             return [
                 Carbon::parse($from ?? today())->startOfDay(),
                 Carbon::parse($to ?? $from ?? today())->endOfDay(),

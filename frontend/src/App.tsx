@@ -268,12 +268,12 @@ function App() {
   }
 
   function salesReportPath(period = reportPeriod, range = reportRange) {
-    const params = new URLSearchParams({ period })
-
-    if (period === 'custom') {
-      params.set('from', range.from)
-      params.set('to', range.to)
-    }
+    const effectiveRange = reportRangeForPeriod(period, range)
+    const params = new URLSearchParams({
+      from: effectiveRange.from,
+      period,
+      to: effectiveRange.to,
+    })
 
     return `${activeStorePath}/reports/sales?${params.toString()}`
   }
@@ -359,12 +359,11 @@ function App() {
 
   function changeReportPeriod(period: ReportPeriod) {
     setReportPeriod(period)
-    void loadSalesReport(period, reportRange)
+    setReportRange((current) => reportRangeForPeriod(period, current))
   }
 
   function changeReportRange(range: { from: string; to: string }) {
     setReportRange(range)
-    void loadSalesReport(reportPeriod, range)
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -1511,14 +1510,14 @@ function reportPeriodLabel(period: ReportPeriod) {
 }
 
 function reportPeriodRangeLabel(period: ReportPeriod, range: { from: string; to: string }) {
-  if (period === 'custom') {
-    return `${formatDateLabel(range.from)} - ${formatDateLabel(range.to)}`
-  }
+  const effectiveRange = reportRangeForPeriod(period, range)
+  const rangeText = `${formatDateLabel(effectiveRange.from)} - ${formatDateLabel(effectiveRange.to)}`
 
-  if (period === 'daily') return `Sot, ${new Date().toLocaleDateString('sq-AL')}`
-  if (period === 'weekly') return 'Java aktuale'
+  if (period === 'daily') return `Sot, ${formatDateLabel(effectiveRange.from)}`
+  if (period === 'weekly') return `Java aktuale: ${rangeText}`
+  if (period === 'monthly') return `Muaji aktual: ${rangeText}`
 
-  return 'Muaji aktual'
+  return rangeText
 }
 
 function ReportMetric({ label, tone = 'slate', value }: { label: string; tone?: 'slate' | 'emerald'; value: string }) {
@@ -1721,7 +1720,43 @@ function formatPercent(value: number) {
 }
 
 function todayInputValue() {
-  return new Date().toISOString().slice(0, 10)
+  return dateInputValue(new Date())
+}
+
+function dateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function reportRangeForPeriod(period: ReportPeriod, range: { from: string; to: string }) {
+  if (period === 'custom') return range
+
+  const now = new Date()
+
+  if (period === 'weekly') {
+    const start = new Date(now)
+    const day = now.getDay() || 7
+    start.setDate(now.getDate() - day + 1)
+
+    const end = new Date(start)
+    end.setDate(start.getDate() + 6)
+
+    return { from: dateInputValue(start), to: dateInputValue(end) }
+  }
+
+  if (period === 'monthly') {
+    return {
+      from: dateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)),
+      to: dateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    }
+  }
+
+  const today = dateInputValue(now)
+
+  return { from: today, to: today }
 }
 
 function formatDateLabel(value: string) {
