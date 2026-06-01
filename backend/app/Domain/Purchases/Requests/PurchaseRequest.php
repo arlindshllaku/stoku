@@ -15,6 +15,7 @@ class PurchaseRequest extends FormRequest
     public function rules(): array
     {
         $storeId = $this->route('store')?->id ?? $this->route('store');
+        $inventoryItemId = $this->route('purchase')?->inventory_item_id;
 
         return [
             'customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')->where('store_id', $storeId)],
@@ -26,7 +27,7 @@ class PurchaseRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:80',
-                Rule::unique('inventory_items', 'imei')->where('store_id', $storeId),
+                Rule::unique('inventory_items', 'imei')->where('store_id', $storeId)->ignore($inventoryItemId),
             ],
             'incoming_item.brand' => ['required', 'string', 'max:120'],
             'incoming_item.model' => ['required', 'string', 'max:160'],

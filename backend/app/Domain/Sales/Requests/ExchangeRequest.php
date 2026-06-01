@@ -7,6 +7,13 @@ use Illuminate\Validation\Rule;
 
 class ExchangeRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('incoming_items') && $this->has('incoming_item')) {
+            $this->merge(['incoming_items' => [$this->input('incoming_item')]]);
+        }
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -30,20 +37,21 @@ class ExchangeRequest extends FormRequest
             'estimated_incoming_value' => ['nullable', 'numeric', 'min:0'],
             'outgoing_sale_value' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
-            'incoming_item' => ['required', 'array'],
-            'incoming_item.imei' => [
+            'incoming_items' => ['required', 'array', 'min:1', 'max:2'],
+            'incoming_items.*.imei' => [
                 'nullable',
                 'string',
                 'max:80',
+                'distinct',
                 Rule::unique('inventory_items', 'imei')->where('store_id', $storeId),
             ],
-            'incoming_item.brand' => ['required', 'string', 'max:120'],
-            'incoming_item.model' => ['required', 'string', 'max:160'],
-            'incoming_item.color' => ['nullable', 'string', 'max:80'],
-            'incoming_item.storage' => ['nullable', 'string', 'max:80'],
-            'incoming_item.purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'incoming_item.selling_price' => ['nullable', 'numeric', 'min:0'],
-            'incoming_item.notes' => ['nullable', 'string'],
+            'incoming_items.*.brand' => ['required', 'string', 'max:120'],
+            'incoming_items.*.model' => ['required', 'string', 'max:160'],
+            'incoming_items.*.color' => ['nullable', 'string', 'max:80'],
+            'incoming_items.*.storage' => ['nullable', 'string', 'max:80'],
+            'incoming_items.*.purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'incoming_items.*.selling_price' => ['nullable', 'numeric', 'min:0'],
+            'incoming_items.*.notes' => ['nullable', 'string'],
         ];
     }
 }

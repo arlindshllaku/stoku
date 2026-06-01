@@ -2,7 +2,9 @@
 
 namespace App\Domain\Purchases\Models;
 
+use App\Domain\Inventory\Models\InventoryItem;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Purchase extends Model
 {
@@ -27,5 +29,10 @@ class Purchase extends Model
             'expected_selling_price' => 'decimal:2',
             'created_at' => 'datetime',
         ];
+    }
+
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
     }
 }

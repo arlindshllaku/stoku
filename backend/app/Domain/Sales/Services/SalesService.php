@@ -7,6 +7,7 @@ use App\Domain\Cash\Services\CashService;
 use App\Domain\Inventory\Models\InventoryItem;
 use App\Domain\Inventory\Services\InventoryService;
 use App\Domain\Sales\Models\Exchange;
+use App\Domain\Sales\Models\ExchangeIncomingItem;
 use App\Domain\Sales\Models\Sale;
 use App\Domain\Sales\Models\SaleItem;
 use App\Domain\Stores\Models\Store;
@@ -78,11 +79,14 @@ class SalesService
                 throw ValidationException::withMessages(['outgoing_item_id' => 'Outgoing item is not available.']);
             }
 
-            $incoming = $this->inventoryService->create($store, $data['incoming_item'], $user, null);
+            $incomingItems = collect($data['incoming_items']);
+            $createdIncomingItems = $incomingItems->map(
+                fn (array $incomingItem) => $this->inventoryService->create($store, $incomingItem, $user, null),
+            );
             $cashDifference = (float) ($data['cash_difference'] ?? 0);
             $cashDirection = $data['cash_direction'] ?? 'none';
             $outgoingValue = (float) ($data['outgoing_sale_value'] ?? $outgoing->selling_price);
-            $incomingValue = (float) ($data['estimated_incoming_value'] ?? $incoming->purchase_price);
+            $incomingValue = (float) ($data['estimated_incoming_value'] ?? $createdIncomingItems->sum(fn (InventoryItem $item) => $item->purchase_price));
             $profitLoss = $outgoingValue - (float) $outgoing->purchase_price - $incomingValue;
 
             if ($cashDirection === 'customer_pays') {
@@ -97,7 +101,7 @@ class SalesService
                 'store_id' => $store->id,
                 'customer_id' => $data['customer_id'] ?? null,
                 'outgoing_item_id' => $outgoing->id,
-                'incoming_item_id' => $incoming->id,
+                'incoming_item_id' => $createdIncomingItems->first()->id,
                 'cash_difference' => $cashDifference,
                 'cash_direction' => $cashDirection,
                 'estimated_incoming_value' => $incomingValue,
@@ -109,7 +113,15 @@ class SalesService
             ]);
 
             $this->inventoryService->changeStatus($store, $outgoing, 'exchanged_out', 'exchange_out', 'out', $user, $exchange);
-            $this->inventoryService->movement($store, $incoming, 'exchange_in', 'in', $user, $exchange);
+            $createdIncomingItems->each(function (InventoryItem $incoming) use ($store, $user, $exchange): void {
+                ExchangeIncomingItem::query()->create([
+                    'exchange_id' => $exchange->id,
+                    'inventory_item_id' => $incoming->id,
+                    'estimated_value' => $incoming->purchase_price,
+                ]);
+
+                $this->inventoryService->movement($store, $incoming, 'exchange_in', 'in', $user, $exchange);
+            });
 
             if ($cashDirection === 'customer_pays' && $cashDifference > 0) {
                 $this->cashService->record($store, 'exchange_income', 'in', $cashDifference, $user, $exchange);
@@ -121,7 +133,7 @@ class SalesService
 
             $this->auditLogger->log('exchange.created', $store->id, $exchange, [], $exchange->toArray());
 
-            return $exchange;
+            return $exchange->load('incomingItems.item');
         });
     }
 

@@ -42,6 +42,8 @@ Route::prefix('v1')->group(function (): void {
 
                 Route::get('/purchases', [PurchaseController::class, 'index'])->middleware('permission:inventory.view');
                 Route::post('/purchases', [PurchaseController::class, 'store'])->middleware('permission:inventory.create');
+                Route::put('/purchases/{purchase}', [PurchaseController::class, 'update'])->middleware('permission:stores.manage');
+                Route::delete('/purchases/{purchase}', [PurchaseController::class, 'destroy'])->middleware('permission:stores.manage');
 
                 Route::get('/cash', [CashController::class, 'show'])->middleware('permission:cash.view');
                 Route::post('/cash/deposit', [CashController::class, 'deposit'])->middleware('permission:cash.adjust');

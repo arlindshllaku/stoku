@@ -5,6 +5,7 @@ namespace App\Domain\Inventory\Controllers;
 use App\Domain\Inventory\Models\InventoryItem;
 use App\Domain\Inventory\Requests\InventoryItemRequest;
 use App\Domain\Inventory\Services\InventoryService;
+use App\Domain\Sales\Models\SaleItem;
 use App\Domain\Stores\Models\Store;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -18,7 +19,17 @@ class InventoryController extends Controller
 
     public function index(Request $request, Store $store): JsonResponse
     {
-        $query = InventoryItem::query()->where('store_id', $store->id)->latest();
+        $query = InventoryItem::query()
+            ->select('inventory_items.*')
+            ->addSelect([
+                'sold_price' => SaleItem::query()
+                    ->select('unit_price')
+                    ->whereColumn('inventory_item_id', 'inventory_items.id')
+                    ->latest('id')
+                    ->limit(1),
+            ])
+            ->where('store_id', $store->id)
+            ->latest();
         $storeItems = InventoryItem::query()->where('store_id', $store->id);
         $perPage = min(max($request->integer('per_page', 25), 1), 100);
 

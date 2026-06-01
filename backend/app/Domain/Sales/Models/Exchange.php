@@ -3,6 +3,7 @@
 namespace App\Domain\Sales\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Exchange extends Model
 {
@@ -22,4 +23,9 @@ class Exchange extends Model
         'created_by',
         'created_at',
     ];
+
+    public function incomingItems(): HasMany
+    {
+        return $this->hasMany(ExchangeIncomingItem::class);
+    }
 }
