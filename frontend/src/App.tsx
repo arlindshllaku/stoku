@@ -1718,7 +1718,7 @@ function ExchangeView({ exchanges, meta, onOpenExchange, onPageChange, onPerPage
                 <td className="px-4 py-3">{inventoryItemLabel(exchange.outgoing_item)}</td>
                 <td className="px-4 py-3"><div className="space-y-2">{exchangeIncomingItems(exchange).map((item, index) => <div className="rounded-md bg-slate-50 px-2 py-1" key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></td>
                 <td className="px-4 py-3">{exchangeCashLabel(exchange)}</td>
-                <td className={`px-4 py-3 text-right font-semibold ${Number(exchange.profit_loss) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatEuro(Number(exchange.profit_loss))}</td>
+                <td className={`px-4 py-3 text-right font-semibold ${exchangeProfitLoss(exchange) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatEuro(exchangeProfitLoss(exchange))}</td>
               </tr>
             ))}
           </tbody>
@@ -1935,6 +1935,23 @@ function exchangeCashLabel(exchange: ExchangeApiRecord) {
   }
 
   return <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">Pa cash</span>
+}
+
+function exchangeProfitLoss(exchange: ExchangeApiRecord) {
+  const incomingRowsTotal = exchange.incoming_items?.reduce((total, incoming) => {
+    const estimatedValue = Number(incoming.estimated_value ?? incoming.item?.purchase_price ?? 0)
+
+    return total + estimatedValue
+  }, 0) ?? Number(exchange.incoming_item?.purchase_price ?? 0)
+  const incomingValue = Number(exchange.estimated_incoming_value) || incomingRowsTotal
+  const cashImpact = exchange.cash_direction === 'customer_pays'
+    ? Number(exchange.cash_difference)
+    : exchange.cash_direction === 'store_pays'
+      ? -Number(exchange.cash_difference)
+      : 0
+  const outgoingCost = Number(exchange.outgoing_item?.purchase_price ?? 0)
+
+  return incomingValue + cashImpact - outgoingCost
 }
 
 function reportPeriodLabel(period: ReportPeriod) {

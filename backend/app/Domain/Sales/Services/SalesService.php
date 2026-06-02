@@ -85,17 +85,14 @@ class SalesService
             );
             $cashDifference = (float) ($data['cash_difference'] ?? 0);
             $cashDirection = $data['cash_direction'] ?? 'none';
-            $outgoingValue = (float) ($data['outgoing_sale_value'] ?? $outgoing->selling_price);
             $incomingValue = (float) ($data['estimated_incoming_value'] ?? $createdIncomingItems->sum(fn (InventoryItem $item) => $item->purchase_price));
-            $profitLoss = $outgoingValue - (float) $outgoing->purchase_price - $incomingValue;
-
-            if ($cashDirection === 'customer_pays') {
-                $profitLoss += $cashDifference;
-            }
-
-            if ($cashDirection === 'store_pays') {
-                $profitLoss -= $cashDifference;
-            }
+            $cashImpact = match ($cashDirection) {
+                'customer_pays' => $cashDifference,
+                'store_pays' => -$cashDifference,
+                default => 0,
+            };
+            $outgoingValue = (float) ($data['outgoing_sale_value'] ?? max($incomingValue + $cashImpact, 0));
+            $profitLoss = $incomingValue + $cashImpact - (float) $outgoing->purchase_price;
 
             $exchange = Exchange::query()->create([
                 'store_id' => $store->id,
