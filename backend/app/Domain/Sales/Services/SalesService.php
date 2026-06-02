@@ -92,7 +92,7 @@ class SalesService
                 default => 0,
             };
             $outgoingValue = (float) ($data['outgoing_sale_value'] ?? max($incomingValue + $cashImpact, 0));
-            $profitLoss = $incomingValue + $cashImpact - (float) $outgoing->purchase_price;
+            $profitLoss = $cashImpact;
 
             $exchange = Exchange::query()->create([
                 'store_id' => $store->id,

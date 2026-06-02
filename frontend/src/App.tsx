@@ -1938,20 +1938,11 @@ function exchangeCashLabel(exchange: ExchangeApiRecord) {
 }
 
 function exchangeProfitLoss(exchange: ExchangeApiRecord) {
-  const incomingRowsTotal = exchange.incoming_items?.reduce((total, incoming) => {
-    const estimatedValue = Number(incoming.estimated_value ?? incoming.item?.purchase_price ?? 0)
-
-    return total + estimatedValue
-  }, 0) ?? Number(exchange.incoming_item?.purchase_price ?? 0)
-  const incomingValue = Number(exchange.estimated_incoming_value) || incomingRowsTotal
-  const cashImpact = exchange.cash_direction === 'customer_pays'
+  return exchange.cash_direction === 'customer_pays'
     ? Number(exchange.cash_difference)
     : exchange.cash_direction === 'store_pays'
       ? -Number(exchange.cash_difference)
       : 0
-  const outgoingCost = Number(exchange.outgoing_item?.purchase_price ?? 0)
-
-  return incomingValue + cashImpact - outgoingCost
 }
 
 function reportPeriodLabel(period: ReportPeriod) {
