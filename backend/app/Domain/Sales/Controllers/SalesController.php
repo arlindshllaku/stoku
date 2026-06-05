@@ -5,6 +5,7 @@ namespace App\Domain\Sales\Controllers;
 use App\Domain\Sales\Models\Exchange;
 use App\Domain\Sales\Models\Sale;
 use App\Domain\Sales\Requests\ExchangeRequest;
+use App\Domain\Sales\Requests\ExchangeUpdateRequest;
 use App\Domain\Sales\Requests\NormalSaleRequest;
 use App\Domain\Sales\Services\SalesService;
 use App\Domain\Stores\Models\Store;
@@ -70,5 +71,12 @@ class SalesController extends Controller
     public function exchange(ExchangeRequest $request, Store $store): JsonResponse
     {
         return response()->json($this->salesService->exchange($store, $request->validated(), $request->user()), 201);
+    }
+
+    public function updateExchange(ExchangeUpdateRequest $request, Store $store, Exchange $exchange): JsonResponse
+    {
+        abort_unless($exchange->store_id === $store->id, 404);
+
+        return response()->json($this->salesService->updateExchange($store, $exchange, $request->validated(), $request->user()));
     }
 }

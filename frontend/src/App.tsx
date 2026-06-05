@@ -48,7 +48,7 @@ type StoreUser = { id: number; name: string; email: string; status: string; role
 type CashTransaction = { id: number; type: string; amount: string; direction: string; created_at: string }
 type SaleItemRecord = { id: number; description: string; inventory_item_id?: number | null; inventory_item?: InventoryApiItem | null; quantity: number; unit_price: string; unit_cost: string; profit: string }
 type SaleApiRecord = { id: number; sale_number: string; type?: string; subtotal?: string; discount?: string; total: string; profit: string; payment_method: string; created_at: string; items?: SaleItemRecord[] }
-type ExchangeIncomingRecord = { id: number; estimated_value: string; item?: InventoryApiItem | null }
+type ExchangeIncomingRecord = { id: number; inventory_item_id?: number; estimated_value: string; item?: InventoryApiItem | null }
 type ExchangeApiRecord = { id: number; cash_difference: string; cash_direction: string; estimated_incoming_value: string; outgoing_sale_value: string; profit_loss: string; notes?: string | null; created_at: string; outgoing_item?: InventoryApiItem | null; incoming_item?: InventoryApiItem | null; incoming_items?: ExchangeIncomingRecord[] }
 type PurchaseApiRecord = { id: number; purchase_number: string; purchase_price: string; expected_selling_price: string; inventory_item_id: number; notes?: string | null; created_at: string; item?: InventoryApiItem | null }
 type UserRole = { id: number; name: string; scope: string; pivot?: { store_id: number | null } }
@@ -58,7 +58,7 @@ type PaginationMeta = { current_page: number; last_page: number; per_page: numbe
 type PaginatedApiResponse<T> = PaginationMeta & { data: T[]; summary?: InventorySummary }
 type ReportApiResponse<T> = { data: T[]; summary?: Record<string, number | string> }
 type CashState = { register?: { current_balance: string }; transactions?: PaginatedApiResponse<CashTransaction> }
-type ModalMode = 'inventory' | 'editInventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'editSale' | 'store' | 'exchange' | 'purchase' | 'editPurchase' | null
+type ModalMode = 'inventory' | 'editInventory' | 'user' | 'editUser' | 'cash' | 'sale' | 'editSale' | 'store' | 'exchange' | 'editExchange' | 'purchase' | 'editPurchase' | null
 type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'custom'
 
 const emptyPaginationMeta: PaginationMeta = { current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null }
@@ -127,6 +127,7 @@ function App() {
   const [editingInventory, setEditingInventory] = useState<InventoryApiItem | null>(null)
   const [editingUser, setEditingUser] = useState<StoreUser | null>(null)
   const [editingSale, setEditingSale] = useState<SaleApiRecord | null>(null)
+  const [editingExchange, setEditingExchange] = useState<ExchangeApiRecord | null>(null)
   const [editingPurchase, setEditingPurchase] = useState<PurchaseApiRecord | null>(null)
   const [cashForm, setCashForm] = useState({ type: 'deposit', amount: '', notes: '' })
   const [saleForm, setSaleForm] = useState({ inventory_item_id: '', payment_method: 'cash', selling_price: '' })
@@ -139,6 +140,7 @@ function App() {
     estimated_incoming_value: '',
     outgoing_sale_value: '',
     notes: '',
+    incoming_item_id: '',
     incoming_brand: '',
     incoming_model: '',
     incoming_imei: '',
@@ -147,6 +149,7 @@ function App() {
     incoming_purchase_price: '',
     incoming_selling_price: '',
     second_incoming_enabled: false,
+    second_incoming_item_id: '',
     second_incoming_brand: '',
     second_incoming_model: '',
     second_incoming_imei: '',
@@ -222,7 +225,7 @@ function App() {
   }, [token, selectedStoreId, activeView, reportPeriod, reportRange.from, reportRange.to])
 
   useEffect(() => {
-    if (!token || !selectedStoreId || (modalMode !== 'sale' && modalMode !== 'exchange')) return
+    if (!token || !selectedStoreId || (modalMode !== 'sale' && modalMode !== 'exchange' && modalMode !== 'editExchange')) return
 
     const timer = window.setTimeout(() => {
       void loadAvailableInventory(stockOptionSearch)
@@ -813,43 +816,9 @@ function App() {
     event.preventDefault()
     if (!selectedStoreId) return
 
-    const incomingItems = [
-      {
-        brand: exchangeForm.incoming_brand,
-        model: exchangeForm.incoming_model,
-        imei: exchangeForm.incoming_imei || undefined,
-        color: exchangeForm.incoming_color || undefined,
-        storage: exchangeForm.incoming_storage || undefined,
-        purchase_price: exchangeForm.incoming_purchase_price ? Number(exchangeForm.incoming_purchase_price) : undefined,
-        selling_price: exchangeForm.incoming_selling_price ? Number(exchangeForm.incoming_selling_price) : undefined,
-        notes: exchangeForm.notes || undefined,
-      },
-    ]
-
-    if (exchangeForm.second_incoming_enabled) {
-      incomingItems.push({
-        brand: exchangeForm.second_incoming_brand,
-        model: exchangeForm.second_incoming_model,
-        imei: exchangeForm.second_incoming_imei || undefined,
-        color: exchangeForm.second_incoming_color || undefined,
-        storage: exchangeForm.second_incoming_storage || undefined,
-        purchase_price: exchangeForm.second_incoming_purchase_price ? Number(exchangeForm.second_incoming_purchase_price) : undefined,
-        selling_price: exchangeForm.second_incoming_selling_price ? Number(exchangeForm.second_incoming_selling_price) : undefined,
-        notes: exchangeForm.notes || undefined,
-      })
-    }
-
     try {
       await api(`${activeStorePath}/sales/exchange`, {
-        body: JSON.stringify({
-          outgoing_item_id: Number(exchangeForm.outgoing_item_id),
-          cash_difference: Number(exchangeForm.cash_difference || 0),
-          cash_direction: exchangeForm.cash_direction,
-          estimated_incoming_value: exchangeForm.estimated_incoming_value ? Number(exchangeForm.estimated_incoming_value) : undefined,
-          outgoing_sale_value: exchangeForm.outgoing_sale_value ? Number(exchangeForm.outgoing_sale_value) : undefined,
-          notes: exchangeForm.notes || undefined,
-          incoming_items: incomingItems,
-        }),
+        body: JSON.stringify(exchangePayload()),
         method: 'POST',
       })
       setModalMode(null)
@@ -861,6 +830,101 @@ function App() {
       setActiveView('Ndërrimet')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Regjistrimi i ndërrimit dështoi.')
+    }
+  }
+
+  async function updateExchange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStoreId || !editingExchange) return
+
+    try {
+      await api(`${activeStorePath}/exchanges/${editingExchange.id}`, {
+        body: JSON.stringify(exchangePayload()),
+        method: 'PUT',
+      })
+      setModalMode(null)
+      resetExchangeForm()
+      setNotice('Ndërrimi u përditësua dhe arka/stoku u korrigjuan.')
+      await loadStoreData()
+      setActiveView('Ndërrimet')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Përditësimi i ndërrimit dështoi.')
+    }
+  }
+
+  function openEditExchange(exchange: ExchangeApiRecord) {
+    const incoming = exchangeIncomingItems(exchange)
+    const first = incoming[0]
+    const second = incoming[1]
+
+    setEditingExchange(exchange)
+    setStockOptionSearch('')
+    setExchangeForm({
+      outgoing_item_id: String(exchange.outgoing_item?.id ?? ''),
+      cash_difference: exchange.cash_difference ?? '',
+      cash_direction: exchange.cash_direction ?? 'none',
+      estimated_incoming_value: '',
+      outgoing_sale_value: exchange.outgoing_sale_value ?? '',
+      notes: exchange.notes ?? '',
+      incoming_item_id: String(first?.id ?? ''),
+      incoming_brand: first?.brand ?? '',
+      incoming_model: first?.model ?? '',
+      incoming_imei: first?.imei ?? '',
+      incoming_color: first?.color ?? '',
+      incoming_storage: first?.storage ?? '',
+      incoming_purchase_price: first?.purchase_price ?? '',
+      incoming_selling_price: first?.selling_price ?? '',
+      second_incoming_enabled: Boolean(second),
+      second_incoming_item_id: String(second?.id ?? ''),
+      second_incoming_brand: second?.brand ?? '',
+      second_incoming_model: second?.model ?? '',
+      second_incoming_imei: second?.imei ?? '',
+      second_incoming_color: second?.color ?? '',
+      second_incoming_storage: second?.storage ?? '',
+      second_incoming_purchase_price: second?.purchase_price ?? '',
+      second_incoming_selling_price: second?.selling_price ?? '',
+    })
+    setModalMode('editExchange')
+  }
+
+  function exchangePayload() {
+    const optionalText = (value: string) => value.trim() || null
+    const incomingItems = [
+      {
+        id: exchangeForm.incoming_item_id ? Number(exchangeForm.incoming_item_id) : undefined,
+        brand: exchangeForm.incoming_brand,
+        model: exchangeForm.incoming_model,
+        imei: optionalText(exchangeForm.incoming_imei),
+        color: optionalText(exchangeForm.incoming_color),
+        storage: optionalText(exchangeForm.incoming_storage),
+        purchase_price: exchangeForm.incoming_purchase_price ? Number(exchangeForm.incoming_purchase_price) : undefined,
+        selling_price: exchangeForm.incoming_selling_price ? Number(exchangeForm.incoming_selling_price) : undefined,
+        notes: optionalText(exchangeForm.notes),
+      },
+    ]
+
+    if (exchangeForm.second_incoming_enabled) {
+      incomingItems.push({
+        id: exchangeForm.second_incoming_item_id ? Number(exchangeForm.second_incoming_item_id) : undefined,
+        brand: exchangeForm.second_incoming_brand,
+        model: exchangeForm.second_incoming_model,
+        imei: optionalText(exchangeForm.second_incoming_imei),
+        color: optionalText(exchangeForm.second_incoming_color),
+        storage: optionalText(exchangeForm.second_incoming_storage),
+        purchase_price: exchangeForm.second_incoming_purchase_price ? Number(exchangeForm.second_incoming_purchase_price) : undefined,
+        selling_price: exchangeForm.second_incoming_selling_price ? Number(exchangeForm.second_incoming_selling_price) : undefined,
+        notes: optionalText(exchangeForm.notes),
+      })
+    }
+
+    return {
+      outgoing_item_id: Number(exchangeForm.outgoing_item_id),
+      cash_difference: Number(exchangeForm.cash_difference || 0),
+      cash_direction: exchangeForm.cash_direction,
+      estimated_incoming_value: exchangeForm.estimated_incoming_value ? Number(exchangeForm.estimated_incoming_value) : undefined,
+      outgoing_sale_value: exchangeForm.outgoing_sale_value ? Number(exchangeForm.outgoing_sale_value) : undefined,
+      notes: optionalText(exchangeForm.notes),
+      incoming_items: incomingItems,
     }
   }
 
@@ -959,6 +1023,7 @@ function App() {
   }
 
   function resetExchangeForm() {
+    setEditingExchange(null)
     setStockOptionSearch('')
     setExchangeForm({
       outgoing_item_id: '',
@@ -967,6 +1032,7 @@ function App() {
       estimated_incoming_value: '',
       outgoing_sale_value: '',
       notes: '',
+      incoming_item_id: '',
       incoming_brand: '',
       incoming_model: '',
       incoming_imei: '',
@@ -975,6 +1041,7 @@ function App() {
       incoming_purchase_price: '',
       incoming_selling_price: '',
       second_incoming_enabled: false,
+      second_incoming_item_id: '',
       second_incoming_brand: '',
       second_incoming_model: '',
       second_incoming_imei: '',
@@ -1134,7 +1201,7 @@ function App() {
           )}
           {activeView === 'Inventari' && <InventoryTable inventory={inventory} meta={inventoryMeta} onEditInventory={openEditInventory} onExport={exportInventory} onPageChange={setInventoryPage} onPerPageChange={setInventoryPerPage} onSearchChange={setSearch} onStatusChange={updateInventoryStatus} perPage={inventoryPerPage} search={search} statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
           {activeView === 'Shitjet' && <SalesView isSuperAdmin={isSuperAdmin} meta={salesMeta} onDeleteSale={deleteSale} onEditSale={openEditSale} onPageChange={loadSalesData} onPerPageChange={(perPage) => { setSalesPerPage(perPage); void loadSalesData(1, perPage) }} sales={sales} stockCount={stockCount} onOpenSale={() => { setAvailableInventory([]); resetSaleForms(); setModalMode('sale') }} perPage={salesPerPage} />}
-          {activeView === 'Ndërrimet' && <ExchangeView exchanges={exchanges} meta={exchangesMeta} onPageChange={loadExchangesData} onPerPageChange={(perPage) => { setExchangesPerPage(perPage); void loadExchangesData(1, perPage) }} stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); setStockOptionSearch(''); setModalMode('exchange') }} perPage={exchangesPerPage} />}
+          {activeView === 'Ndërrimet' && <ExchangeView exchanges={exchanges} isSuperAdmin={isSuperAdmin} meta={exchangesMeta} onEditExchange={openEditExchange} onPageChange={loadExchangesData} onPerPageChange={(perPage) => { setExchangesPerPage(perPage); void loadExchangesData(1, perPage) }} stockCount={stockCount} onOpenExchange={() => { setAvailableInventory([]); resetExchangeForm(); setModalMode('exchange') }} perPage={exchangesPerPage} />}
           {activeView === 'Blerjet' && <PurchasesView isSuperAdmin={isSuperAdmin} meta={purchasesMeta} onDeletePurchase={deletePurchase} onEditPurchase={openEditPurchase} onPageChange={loadPurchasesData} onPerPageChange={(perPage) => { setPurchasesPerPage(perPage); void loadPurchasesData(1, perPage) }} purchases={purchases} onOpenPurchase={() => { resetPurchaseForm(); setModalMode('purchase') }} perPage={purchasesPerPage} />}
           {activeView === 'Arka' && <CashView cash={cash} onOpenCash={(type) => { setCashForm((form) => ({ ...form, type })); setModalMode('cash') }} />}
           {activeView === 'Raportet' && <ReportsView period={reportPeriod} range={reportRange} sales={reportSales} setPeriod={changeReportPeriod} setRange={changeReportRange} />}
@@ -1316,9 +1383,14 @@ function App() {
         </Modal>
       )}
 
-      {modalMode === 'exchange' && (
-        <Modal title="Regjistro ndërrim" onClose={() => setModalMode(null)}>
-          <form className="grid gap-3" onSubmit={createExchange}>
+      {(modalMode === 'exchange' || modalMode === 'editExchange') && (
+        <Modal title={modalMode === 'editExchange' ? 'Edito ndërrim' : 'Regjistro ndërrim'} onClose={() => { setModalMode(null); resetExchangeForm() }}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={modalMode === 'editExchange' ? updateExchange : createExchange}>
+            {modalMode === 'editExchange' && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:col-span-2">
+                Arka dhe stoku korrigjohen vetëm me diferencën. Ndërrimi nuk mund të ruhet nëse një telefon hyrës është shitur ose ka dalë në ndërrim tjetër.
+              </div>
+            )}
             <label className="space-y-1 text-sm">
               <span className="font-medium text-slate-700">Kërko telefonin që del</span>
               <input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => setStockOptionSearch(event.target.value)} placeholder="IMEI, brend ose model" value={stockOptionSearch} />
@@ -1327,11 +1399,11 @@ function App() {
               <span className="font-medium text-slate-700">Telefoni që del nga stoku</span>
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, outgoing_item_id: event.target.value }))} required value={exchangeForm.outgoing_item_id}>
                 <option value="">Zgjidh artikullin</option>
-                {availableInventory.map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
+                {exchangeOutgoingOptions(availableInventory, editingExchange?.outgoing_item).map((item) => <option key={item.id} value={item.id}>{inventoryOptionLabel(item)}</option>)}
               </select>
-              {!availableInventory.length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
+              {!exchangeOutgoingOptions(availableInventory, editingExchange?.outgoing_item).length && <span className="block text-xs text-slate-500">Nuk ka artikuj në stok për këtë kërkim.</span>}
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
               <Field label="Brendi hyrës" value={exchangeForm.incoming_brand} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_brand: value }))} />
               <Field label="Modeli hyrës" value={exchangeForm.incoming_model} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_model: value }))} />
               <Field label="IMEI" value={exchangeForm.incoming_imei} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_imei: value }))} />
@@ -1341,7 +1413,7 @@ function App() {
               <Field label="Çmimi i shitjes hyrëse" value={exchangeForm.incoming_selling_price} onChange={(value) => setExchangeForm((form) => ({ ...form, incoming_selling_price: value }))} />
               <Field label="Vlera e telefonit që del" value={exchangeForm.outgoing_sale_value} onChange={(value) => setExchangeForm((form) => ({ ...form, outgoing_sale_value: value }))} />
             </div>
-            <div className="rounded-md border border-slate-200 p-3">
+            <div className="rounded-md border border-slate-200 p-3 sm:col-span-2">
               <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                 <input checked={exchangeForm.second_incoming_enabled} onChange={(event) => setExchangeForm((form) => ({ ...form, second_incoming_enabled: event.target.checked }))} type="checkbox" />
                 Klienti sjell edhe telefon të dytë
@@ -1358,7 +1430,7 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-slate-700">Drejtimi i cash-it</span>
                 <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setExchangeForm((form) => ({ ...form, cash_direction: event.target.value }))} value={exchangeForm.cash_direction}>
@@ -1369,8 +1441,8 @@ function App() {
               </label>
               <Field label="Shuma cash" value={exchangeForm.cash_difference} onChange={(value) => setExchangeForm((form) => ({ ...form, cash_difference: value }))} />
             </div>
-            <Field label="Shënim" value={exchangeForm.notes} onChange={(value) => setExchangeForm((form) => ({ ...form, notes: value }))} />
-            <SubmitRow submitLabel="Regjistro ndërrimin" onCancel={() => setModalMode(null)} />
+            <div className="sm:col-span-2"><Field label="Shënim" value={exchangeForm.notes} onChange={(value) => setExchangeForm((form) => ({ ...form, notes: value }))} /></div>
+            <SubmitRow submitLabel={modalMode === 'editExchange' ? 'Ruaj ndryshimet' : 'Regjistro ndërrimin'} onCancel={() => { setModalMode(null); resetExchangeForm() }} />
           </form>
         </Modal>
       )}
@@ -1693,7 +1765,7 @@ function ReportsView({ period, range, sales, setPeriod, setRange }: { period: Re
   )
 }
 
-function ExchangeView({ exchanges, meta, onOpenExchange, onPageChange, onPerPageChange, perPage, stockCount }: { exchanges: ExchangeApiRecord[]; meta: PaginationMeta; onOpenExchange: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; stockCount: number }) {
+function ExchangeView({ exchanges, isSuperAdmin, meta, onEditExchange, onOpenExchange, onPageChange, onPerPageChange, perPage, stockCount }: { exchanges: ExchangeApiRecord[]; isSuperAdmin: boolean; meta: PaginationMeta; onEditExchange: (exchange: ExchangeApiRecord) => void; onOpenExchange: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; stockCount: number }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1709,6 +1781,7 @@ function ExchangeView({ exchanges, meta, onOpenExchange, onPageChange, onPerPage
               <th className="px-4 py-3 font-medium">Hyri nga klienti</th>
               <th className="px-4 py-3 font-medium">Cash</th>
               <th className="px-4 py-3 text-right font-medium">Fitim/Humbje</th>
+              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -1719,6 +1792,7 @@ function ExchangeView({ exchanges, meta, onOpenExchange, onPageChange, onPerPage
                 <td className="px-4 py-3"><div className="space-y-2">{exchangeIncomingItems(exchange).map((item, index) => <div className="rounded-md bg-slate-50 px-2 py-1" key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></td>
                 <td className="px-4 py-3">{exchangeCashLabel(exchange)}</td>
                 <td className={`px-4 py-3 text-right font-semibold ${exchangeProfitLoss(exchange) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatEuro(exchangeProfitLoss(exchange))}</td>
+                {isSuperAdmin && <td className="px-4 py-3 text-right"><ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditExchange(exchange)} /></td>}
               </tr>
             ))}
           </tbody>
@@ -1863,7 +1937,7 @@ function paginationMeta<T>(page: PaginatedApiResponse<T>): PaginationMeta {
 }
 
 function cashTypeLabel(type: string) {
-  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', sale_adjustment: 'Korrigjim shitjeje', sale_reversal: 'Kthim/fshirje shitjeje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje', customer_purchase_payout: 'Blerje nga klienti', customer_purchase_adjustment: 'Korrigjim blerjeje', customer_purchase_reversal: 'Kthim/fshirje blerjeje' } as Record<string, string>)[type] ?? type
+  return ({ manual_deposit: 'Depozitim', manual_withdrawal: 'Tërheqje', expense: 'Shpenzim', sale_income: 'Shitje', sale_adjustment: 'Korrigjim shitjeje', sale_reversal: 'Kthim/fshirje shitjeje', exchange_income: 'Ndërrim hyrje', exchange_payout: 'Ndërrim dalje', exchange_adjustment: 'Korrigjim ndërrimi', exchange_reversal: 'Kthim nga ndërrimi', customer_purchase_payout: 'Blerje nga klienti', customer_purchase_adjustment: 'Korrigjim blerjeje', customer_purchase_reversal: 'Kthim/fshirje blerjeje' } as Record<string, string>)[type] ?? type
 }
 
 function paymentLabel(method: string) {
@@ -1884,6 +1958,12 @@ function roleLabel(role?: string) {
 
 function inventoryOptionLabel(item: InventoryApiItem) {
   return `${item.brand} ${item.model} · IMEI: ${item.imei ?? 'Pa IMEI'} · ${formatEuro(Number(item.selling_price))}`
+}
+
+function exchangeOutgoingOptions(available: InventoryApiItem[], current?: InventoryApiItem | null) {
+  const options = current ? [current, ...available] : available
+
+  return options.filter((item, index) => options.findIndex((candidate) => candidate.id === item.id) === index)
 }
 
 function inventoryItemLabel(item?: InventoryApiItem | null) {

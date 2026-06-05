@@ -183,6 +183,130 @@ class SalesService
         });
     }
 
+    public function updateExchange(Store $store, Exchange $exchange, array $data, User $user): Exchange
+    {
+        return DB::transaction(function () use ($store, $exchange, $data, $user): Exchange {
+            $exchange = Exchange::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($exchange->id);
+            $old = $exchange->load(['outgoingItem', 'incomingItem', 'incomingItems.item'])->toArray();
+            $oldOutgoing = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($exchange->outgoing_item_id);
+            $newOutgoing = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($data['outgoing_item_id']);
+
+            if ($oldOutgoing->id !== $newOutgoing->id) {
+                if ($oldOutgoing->status !== 'exchanged_out') {
+                    throw ValidationException::withMessages([
+                        'outgoing_item_id' => 'Telefoni i vjetër dalës nuk është më i shënuar si i dalë në ndërrim.',
+                    ]);
+                }
+
+                if ($newOutgoing->status !== 'in_stock') {
+                    throw ValidationException::withMessages([
+                        'outgoing_item_id' => 'Telefoni i ri dalës nuk është në stok.',
+                    ]);
+                }
+
+                $this->inventoryService->changeStatus($store, $oldOutgoing, 'in_stock', 'exchange_edit_reversal', 'in', $user, $exchange, 'Korrigjim ndërrimi');
+                $this->inventoryService->changeStatus($store, $newOutgoing, 'exchanged_out', 'exchange_edit', 'out', $user, $exchange, 'Korrigjim ndërrimi');
+            } elseif ($newOutgoing->status !== 'exchanged_out') {
+                throw ValidationException::withMessages([
+                    'outgoing_item_id' => 'Telefoni dalës nuk është më i shënuar si i dalë në ndërrim.',
+                ]);
+            }
+
+            $existingLinks = ExchangeIncomingItem::query()
+                ->where('exchange_id', $exchange->id)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('inventory_item_id');
+
+            if ($exchange->incoming_item_id && ! $existingLinks->has($exchange->incoming_item_id)) {
+                $legacyLink = ExchangeIncomingItem::query()->firstOrCreate(
+                    [
+                        'exchange_id' => $exchange->id,
+                        'inventory_item_id' => $exchange->incoming_item_id,
+                    ],
+                    ['estimated_value' => $exchange->estimated_incoming_value],
+                );
+                $existingLinks->put($legacyLink->inventory_item_id, $legacyLink);
+            }
+
+            $submittedIncomingIds = collect();
+            $incomingItems = collect($data['incoming_items'])->map(function (array $incomingData) use ($store, $exchange, $existingLinks, $submittedIncomingIds, $user): InventoryItem {
+                $incomingId = $incomingData['id'] ?? null;
+                unset($incomingData['id']);
+
+                if ($incomingId) {
+                    $link = $existingLinks->get($incomingId);
+
+                    if (! $link) {
+                        throw ValidationException::withMessages(['incoming_items' => 'Telefoni hyrës nuk i përket këtij ndërrimi.']);
+                    }
+
+                    $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($incomingId);
+                    $this->ensureIncomingItemCanBeEdited($item);
+                    $item = $this->inventoryService->update($store, $item, $incomingData, $user);
+                    $link->update(['estimated_value' => $item->purchase_price]);
+                    $submittedIncomingIds->push($item->id);
+
+                    return $item;
+                }
+
+                $item = $this->inventoryService->create($store, $incomingData, $user, null);
+                ExchangeIncomingItem::query()->create([
+                    'exchange_id' => $exchange->id,
+                    'inventory_item_id' => $item->id,
+                    'estimated_value' => $item->purchase_price,
+                ]);
+                $this->inventoryService->movement($store, $item, 'exchange_in', 'in', $user, $exchange, 'Shtuar gjatë korrigjimit të ndërrimit');
+                $submittedIncomingIds->push($item->id);
+
+                return $item;
+            });
+
+            $exchange->update(['incoming_item_id' => $incomingItems->first()->id]);
+
+            $existingLinks
+                ->reject(fn (ExchangeIncomingItem $link) => $submittedIncomingIds->contains($link->inventory_item_id))
+                ->each(function (ExchangeIncomingItem $link) use ($store): void {
+                    $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($link->inventory_item_id);
+                    $this->ensureIncomingItemCanBeEdited($item);
+                    $link->delete();
+                    $item->delete();
+                });
+
+            $cashDifference = (float) ($data['cash_difference'] ?? 0);
+            $cashDirection = $data['cash_direction'] ?? 'none';
+            $incomingValue = (float) ($data['estimated_incoming_value'] ?? $incomingItems->sum(fn (InventoryItem $item) => $item->purchase_price));
+            $newCashImpact = $this->exchangeCashImpact($cashDirection, $cashDifference);
+            $oldCashImpact = $this->exchangeCashImpact($exchange->cash_direction, (float) $exchange->cash_difference);
+            $cashDelta = $newCashImpact - $oldCashImpact;
+            $outgoingValue = (float) ($data['outgoing_sale_value'] ?? max($incomingValue + $newCashImpact, 0));
+
+            $exchange->update([
+                'customer_id' => $data['customer_id'] ?? $exchange->customer_id,
+                'outgoing_item_id' => $newOutgoing->id,
+                'cash_difference' => $cashDifference,
+                'cash_direction' => $cashDirection,
+                'estimated_incoming_value' => $incomingValue,
+                'outgoing_sale_value' => $outgoingValue,
+                'profit_loss' => $newCashImpact,
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            if ($cashDelta > 0) {
+                $this->cashService->record($store, 'exchange_adjustment', 'in', $cashDelta, $user, $exchange, 'Korrigjim ndërrimi');
+            }
+
+            if ($cashDelta < 0) {
+                $this->cashService->record($store, 'exchange_reversal', 'out', abs($cashDelta), $user, $exchange, 'Korrigjim ndërrimi');
+            }
+
+            $fresh = $exchange->fresh(['outgoingItem', 'incomingItem', 'incomingItems.item']);
+            $this->auditLogger->log('exchange.updated', $store->id, $exchange, $old, $fresh->toArray());
+
+            return $fresh;
+        });
+    }
+
     public function deleteNormalSale(Store $store, Sale $sale, User $user): void
     {
         DB::transaction(function () use ($store, $sale, $user): void {
@@ -221,5 +345,23 @@ class SalesService
                 'sale' => 'Vetëm shitjet normale mund të editohen ose fshihen nga ky ekran.',
             ]);
         }
+    }
+
+    private function ensureIncomingItemCanBeEdited(InventoryItem $item): void
+    {
+        if (in_array($item->status, ['sold', 'exchanged_out'], true)) {
+            throw ValidationException::withMessages([
+                'incoming_items' => 'Ndërrimi nuk mund të editohet sepse një telefon hyrës është shitur ose ka dalë në ndërrim tjetër.',
+            ]);
+        }
+    }
+
+    private function exchangeCashImpact(string $direction, float $difference): float
+    {
+        return match ($direction) {
+            'customer_pays' => $difference,
+            'store_pays' => -$difference,
+            default => 0,
+        };
     }
 }

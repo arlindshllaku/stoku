@@ -42,6 +42,7 @@ Route::prefix('v1')->group(function (): void {
                 Route::put('/sales/{sale}', [SalesController::class, 'update'])->middleware('permission:stores.manage');
                 Route::delete('/sales/{sale}', [SalesController::class, 'destroy'])->middleware('permission:stores.manage');
                 Route::get('/exchanges', [SalesController::class, 'exchanges'])->middleware('permission:sales.create');
+                Route::put('/exchanges/{exchange}', [SalesController::class, 'updateExchange'])->middleware('permission:stores.manage');
 
                 Route::get('/purchases', [PurchaseController::class, 'index'])->middleware('permission:inventory.view');
                 Route::post('/purchases', [PurchaseController::class, 'store'])->middleware('permission:inventory.create');
