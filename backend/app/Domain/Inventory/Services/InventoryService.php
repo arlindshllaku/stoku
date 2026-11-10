@@ -8,12 +8,33 @@ use App\Domain\Inventory\Models\InventoryMovement;
 use App\Domain\Stores\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class InventoryService
 {
-    public function __construct(private readonly AuditLogger $auditLogger)
+    public function receiveExchange(Store $store, array $data, User $user): InventoryItem
     {
+        $item = empty($data['imei']) ? null : InventoryItem::query()
+            ->where('store_id', $store->id)->where('imei', $data['imei'])->lockForUpdate()->first();
+
+        if (! $item) {
+            return $this->create($store, $data, $user, null);
+        }
+
+        if (! in_array($item->status, ['sold', 'exchanged_out'], true)) {
+            throw ValidationException::withMessages([
+                'incoming_items' => 'Ky IMEI gjendet tashmë në stok ose është rezervuar.',
+            ]);
+        }
+
+        return $this->update($store, $item, [
+            ...$data, 'status' => 'in_stock', 'date_added' => now()->toDateString(),
+            'purchase_price' => $data['purchase_price'] ?? 0,
+            'selling_price' => $data['selling_price'] ?? 0,
+        ], $user);
     }
+
+    public function __construct(private readonly AuditLogger $auditLogger) {}
 
     public function create(Store $store, array $data, User $user, ?string $movementType = 'purchase'): InventoryItem
     {

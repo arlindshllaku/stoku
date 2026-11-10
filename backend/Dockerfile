@@ -10,7 +10,7 @@ RUN install-php-extensions \
     zip
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-COPY composer.json ./
+COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
 COPY . .
 RUN composer dump-autoload --optimize

@@ -41,7 +41,7 @@ class ExchangeUpdateRequest extends FormRequest
             'estimated_incoming_value' => ['nullable', 'numeric', 'min:0'],
             'outgoing_sale_value' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
-            'incoming_items' => ['required', 'array', 'min:1', 'max:2'],
+            'incoming_items' => ['required', 'array', 'min:1', 'max:100'],
             'incoming_items.*.id' => [
                 'nullable',
                 'integer',
@@ -67,6 +67,7 @@ class ExchangeUpdateRequest extends FormRequest
                 'distinct',
                 Rule::unique('inventory_items', 'imei')
                     ->where('store_id', $storeId)
+                    ->whereNotIn('status', ['sold', 'exchanged_out'])
                     ->ignore($incomingItem['id'] ?? null),
             ];
         }

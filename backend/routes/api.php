@@ -3,6 +3,8 @@
 use App\Domain\Cash\Controllers\CashController;
 use App\Domain\Inventory\Controllers\InventoryController;
 use App\Domain\Purchases\Controllers\PurchaseController;
+use App\Domain\Reports\Controllers\AutomationController;
+use App\Domain\Reports\Controllers\ReportController;
 use App\Domain\Reports\Controllers\SalesReportController;
 use App\Domain\Sales\Controllers\SalesController;
 use App\Domain\Stores\Controllers\StoreController;
@@ -38,10 +40,10 @@ Route::prefix('v1')->group(function (): void {
 
                 Route::post('/sales/normal', [SalesController::class, 'normal'])->middleware('permission:sales.create');
                 Route::post('/sales/exchange', [SalesController::class, 'exchange'])->middleware('permission:sales.create');
-                Route::get('/sales', [SalesController::class, 'index'])->middleware('permission:sales.create');
+                Route::get('/sales', [SalesController::class, 'index'])->middleware('permission:sales.view');
                 Route::put('/sales/{sale}', [SalesController::class, 'update'])->middleware('permission:stores.manage');
                 Route::delete('/sales/{sale}', [SalesController::class, 'destroy'])->middleware('permission:stores.manage');
-                Route::get('/exchanges', [SalesController::class, 'exchanges'])->middleware('permission:sales.create');
+                Route::get('/exchanges', [SalesController::class, 'exchanges'])->middleware('permission:sales.view');
                 Route::put('/exchanges/{exchange}', [SalesController::class, 'updateExchange'])->middleware('permission:stores.manage');
 
                 Route::get('/purchases', [PurchaseController::class, 'index'])->middleware('permission:inventory.view');
@@ -54,6 +56,16 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('/cash/withdraw', [CashController::class, 'withdraw'])->middleware('permission:cash.adjust');
                 Route::post('/cash/expense', [CashController::class, 'expense'])->middleware('permission:cash.adjust');
                 Route::get('/reports/sales', SalesReportController::class)->middleware('permission:reports.export');
+                Route::get('/report-data/{type}', ReportController::class)->middleware('permission:reports.export');
+                Route::middleware(['permission:users.manage', 'permission:reports.export'])->group(function (): void {
+                    Route::get('/report-automations', [AutomationController::class, 'index']);
+                    Route::post('/report-automations', [AutomationController::class, 'save']);
+                    Route::put('/report-automations/{automation}', [AutomationController::class, 'save']);
+                    Route::delete('/report-automations/{automation}', [AutomationController::class, 'destroy']);
+                    Route::get('/smtp', [AutomationController::class, 'smtp']);
+                    Route::put('/smtp', [AutomationController::class, 'saveSmtp']);
+                    Route::post('/smtp/test', [AutomationController::class, 'test'])->middleware('throttle:6,1');
+                });
 
                 Route::get('/users', [StoreUserController::class, 'index'])->middleware('permission:users.manage');
                 Route::post('/users', [StoreUserController::class, 'store'])->middleware('permission:users.manage');
