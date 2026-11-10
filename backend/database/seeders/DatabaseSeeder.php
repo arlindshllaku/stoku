@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             'inventory.create',
             'inventory.update',
             'inventory.adjust',
+            'sales.view',
             'sales.create',
             'cash.view',
             'cash.adjust',
@@ -33,7 +34,7 @@ class DatabaseSeeder extends Seeder
 
         $superAdmin->permissions()->sync($permissions->pluck('id'));
         $storeOwner->permissions()->sync($permissions->except(['stores.manage'])->pluck('id'));
-        $employee->permissions()->sync($permissions->only(['inventory.view', 'inventory.create', 'sales.create', 'cash.view'])->pluck('id'));
+        $employee->permissions()->sync($permissions->only(['inventory.view', 'sales.view', 'cash.view'])->pluck('id'));
 
         $admin = User::firstOrCreate(
             ['email' => env('SUPER_ADMIN_EMAIL', 'admin@example.com')],

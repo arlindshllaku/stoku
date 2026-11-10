@@ -20,8 +20,7 @@ class PurchaseService
         private readonly CashService $cashService,
         private readonly AuditLogger $auditLogger,
         private readonly DocumentNumberService $documentNumberService,
-    ) {
-    }
+    ) {}
 
     public function fromCustomer(Store $store, array $data, User $user): Purchase
     {
@@ -127,6 +126,9 @@ class PurchaseService
 
     private function ensureEditableItem(InventoryItem $item): void
     {
+        if ($item->movements()->where('type', 'exchange_in')->exists()) {
+            throw ValidationException::withMessages(['purchase' => 'Telefoni ka hyrë në ndërrim. Blerja origjinale ruhet në historik.']);
+        }
         if (in_array($item->status, ['sold', 'exchanged_out'], true)) {
             throw ValidationException::withMessages([
                 'purchase' => 'Blerja nuk mund të ndryshohet sepse telefoni ka dalë nga stoku.',

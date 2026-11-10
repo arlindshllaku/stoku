@@ -5,6 +5,7 @@ namespace App\Domain\Sales\Services;
 use App\Domain\Audit\Services\AuditLogger;
 use App\Domain\Cash\Services\CashService;
 use App\Domain\Inventory\Models\InventoryItem;
+use App\Domain\Inventory\Models\InventoryMovement;
 use App\Domain\Inventory\Services\InventoryService;
 use App\Domain\Sales\Models\Exchange;
 use App\Domain\Sales\Models\ExchangeIncomingItem;
@@ -23,8 +24,7 @@ class SalesService
         private readonly CashService $cashService,
         private readonly AuditLogger $auditLogger,
         private readonly DocumentNumberService $documentNumberService,
-    ) {
-    }
+    ) {}
 
     public function normalSale(Store $store, array $data, User $user): Sale
     {
@@ -81,7 +81,7 @@ class SalesService
 
             $incomingItems = collect($data['incoming_items']);
             $createdIncomingItems = $incomingItems->map(
-                fn (array $incomingItem) => $this->inventoryService->create($store, $incomingItem, $user, null),
+                fn (array $incomingItem) => $this->inventoryService->receiveExchange($store, $incomingItem, $user),
             );
             $cashDifference = (float) ($data['cash_difference'] ?? 0);
             $cashDirection = $data['cash_direction'] ?? 'none';
@@ -139,6 +139,7 @@ class SalesService
         return DB::transaction(function () use ($store, $sale, $data, $user): Sale {
             $sale = Sale::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($sale->id);
             $this->ensureNormalSale($sale);
+            $this->ensureSaleNotReturned($sale);
 
             $saleItem = SaleItem::query()->where('sale_id', $sale->id)->lockForUpdate()->firstOrFail();
             $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($saleItem->inventory_item_id);
@@ -189,6 +190,10 @@ class SalesService
             $exchange = Exchange::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($exchange->id);
             $old = $exchange->load(['outgoingItem', 'incomingItem', 'incomingItems.item'])->toArray();
             $oldOutgoing = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($exchange->outgoing_item_id);
+            $lastOutgoing = $oldOutgoing->movements()->where('direction', 'out')->latest('id')->first();
+            if ($lastOutgoing && ($lastOutgoing->reference_type !== Exchange::class || (int) $lastOutgoing->reference_id !== $exchange->id)) {
+                throw ValidationException::withMessages(['exchange' => 'Telefoni ka qarkulluar përsëri. Ndërrimi origjinal ruhet në historik.']);
+            }
             $newOutgoing = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($data['outgoing_item_id']);
 
             if ($oldOutgoing->id !== $newOutgoing->id) {
@@ -242,7 +247,7 @@ class SalesService
                     }
 
                     $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($incomingId);
-                    $this->ensureIncomingItemCanBeEdited($item);
+                    $this->ensureIncomingItemCanBeEdited($item, $exchange);
                     $item = $this->inventoryService->update($store, $item, $incomingData, $user);
                     $link->update(['estimated_value' => $item->purchase_price]);
                     $submittedIncomingIds->push($item->id);
@@ -250,7 +255,7 @@ class SalesService
                     return $item;
                 }
 
-                $item = $this->inventoryService->create($store, $incomingData, $user, null);
+                $item = $this->inventoryService->receiveExchange($store, $incomingData, $user);
                 ExchangeIncomingItem::query()->create([
                     'exchange_id' => $exchange->id,
                     'inventory_item_id' => $item->id,
@@ -266,11 +271,10 @@ class SalesService
 
             $existingLinks
                 ->reject(fn (ExchangeIncomingItem $link) => $submittedIncomingIds->contains($link->inventory_item_id))
-                ->each(function (ExchangeIncomingItem $link) use ($store): void {
+                ->each(function (ExchangeIncomingItem $link) use ($store, $exchange): void {
                     $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($link->inventory_item_id);
-                    $this->ensureIncomingItemCanBeEdited($item);
-                    $link->delete();
-                    $item->delete();
+                    $this->ensureIncomingItemCanBeEdited($item, $exchange);
+                    throw ValidationException::withMessages(['incoming_items' => 'Telefoni i pranuar nuk mund të hiqet nga historiku i ndërrimit.']);
                 });
 
             $cashDifference = (float) ($data['cash_difference'] ?? 0);
@@ -312,6 +316,7 @@ class SalesService
         DB::transaction(function () use ($store, $sale, $user): void {
             $sale = Sale::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($sale->id);
             $this->ensureNormalSale($sale);
+            $this->ensureSaleNotReturned($sale);
 
             $saleItem = SaleItem::query()->where('sale_id', $sale->id)->lockForUpdate()->firstOrFail();
             $item = InventoryItem::query()->where('store_id', $store->id)->lockForUpdate()->findOrFail($saleItem->inventory_item_id);
@@ -338,6 +343,19 @@ class SalesService
         return $this->documentNumberService->next($store, 'sale', 'S');
     }
 
+    private function ensureSaleNotReturned(Sale $sale): void
+    {
+        $ids = $sale->items()->pluck('inventory_item_id');
+        $saleMovement = InventoryMovement::query()->where('reference_type', Sale::class)
+            ->where('reference_id', $sale->id)->where('type', 'sale')->max('id');
+        if (InventoryMovement::query()
+            ->whereIn('inventory_item_id', $ids)->where('type', 'exchange_in')
+            ->when($saleMovement, fn ($query) => $query->where('id', '>', $saleMovement),
+                fn ($query) => $query->where('created_at', '>', $sale->created_at))->exists()) {
+            throw ValidationException::withMessages(['sale' => 'Telefoni është kthyer në ndërrim. Shitja origjinale ruhet në historik.']);
+        }
+    }
+
     private function ensureNormalSale(Sale $sale): void
     {
         if ($sale->type !== 'normal') {
@@ -347,8 +365,15 @@ class SalesService
         }
     }
 
-    private function ensureIncomingItemCanBeEdited(InventoryItem $item): void
+    private function ensureIncomingItemCanBeEdited(InventoryItem $item, Exchange $exchange): void
     {
+        $receivedMovement = $item->movements()->where('type', 'exchange_in')
+            ->where('reference_type', Exchange::class)->where('reference_id', $exchange->id)->max('id');
+        if ($item->movements()->where('type', 'exchange_in')->where('reference_id', '!=', $exchange->id)
+            ->when($receivedMovement, fn ($query) => $query->where('id', '>', $receivedMovement),
+                fn ($query) => $query->where('created_at', '>', $exchange->created_at))->exists()) {
+            throw ValidationException::withMessages(['incoming_items' => 'Telefoni ka hyrë në një ndërrim të mëvonshëm.']);
+        }
         if (in_array($item->status, ['sold', 'exchanged_out'], true)) {
             throw ValidationException::withMessages([
                 'incoming_items' => 'Ndërrimi nuk mund të editohet sepse një telefon hyrës është shitur ose ka dalë në ndërrim tjetër.',
