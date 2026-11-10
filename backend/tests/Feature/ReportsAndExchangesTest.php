@@ -29,7 +29,16 @@ class ReportsAndExchangesTest extends TestCase
     {
         parent::setUp();
         config(['database.default' => 'sqlite', 'database.connections.sqlite' => ['driver' => 'sqlite', 'database' => ':memory:', 'foreign_key_constraints' => true], 'cache.default' => 'array']);
-        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        if (getenv('STOKU_TEST_POSTGRES') === '1') {
+            // This fixed database belongs to the disposable CI PostgreSQL service.
+            config(['database.default' => 'pgsql', 'database.connections.pgsql' => [
+                'driver' => 'pgsql', 'host' => '127.0.0.1', 'port' => 5432, 'database' => 'stoku_test',
+                'username' => 'stoku_test', 'password' => 'test-only', 'charset' => 'utf8', 'search_path' => 'public',
+            ]]);
+            $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
+        } else {
+            $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        }
         $this->seed(DatabaseSeeder::class);
         $this->store = Store::firstOrFail();
         $this->user = User::firstOrFail();
