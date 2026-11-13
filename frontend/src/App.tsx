@@ -1093,8 +1093,8 @@ function App() {
   ]
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
+    <main className="stoku-app min-h-screen bg-slate-50 text-slate-950">
+      <aside className="app-sidebar fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
           <div className="flex size-9 items-center justify-center rounded-md bg-blue-600 text-white">
             <Store size={19} />
@@ -1106,7 +1106,7 @@ function App() {
         </div>
         <nav className="space-y-1 p-3 text-sm">
           {navItems.filter(item => item.label !== 'Cilësimet' || canManageUsers).map((item) => (
-            <button className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${activeView === item.label ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'}`} key={item.label} onClick={() => setActiveView(item.label)} type="button">
+            <button aria-current={activeView === item.label ? 'page' : undefined} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${activeView === item.label ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'}`} key={item.label} onClick={() => setActiveView(item.label)} type="button">
               <item.icon size={18} />
               <span>{item.label}</span>
             </button>
@@ -1115,18 +1115,18 @@ function App() {
       </aside>
 
       <section className="lg:pl-64">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white">
+        <header className="app-header sticky top-0 z-10 border-b border-slate-200 bg-white">
           <div className="flex min-h-16 flex-col gap-3 px-4 py-3 lg:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h1 className="text-xl font-semibold">{activeView === 'Paneli' ? selectedStore?.name ?? 'Dyqani' : activeView}</h1>
                 <p className="text-sm text-slate-500">{activeNav.description}</p>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="app-header-actions flex flex-col gap-2 sm:flex-row sm:items-center">
                 <select aria-label="Faqja" className="h-11 rounded-md border border-slate-300 px-3 text-sm lg:hidden" value={activeView} onChange={event => setActiveView(event.target.value)}>
                   {navItems.filter(item => item.label !== 'Cilësimet' || canManageUsers).map(item => <option key={item.label} value={item.label}>{item.label}</option>)}
                 </select>
-                <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => selectStore(Number(event.target.value))} value={selectedStoreId ?? ''}>
+                <select aria-label="Dyqani" className="h-11 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => selectStore(Number(event.target.value))} value={selectedStoreId ?? ''}>
                   {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                 </select>
                 {isSuperAdmin && (
@@ -1135,7 +1135,7 @@ function App() {
                     Dyqan i ri
                   </button>
                 )}
-                {canCreateInventory && (
+                {canCreateInventory && ['Paneli', 'Inventari'].includes(activeView) && (
                   <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={() => { resetInventoryForm(); setModalMode('inventory') }} type="button">
                     <PackagePlus size={17} />
                     Artikull i ri
@@ -1144,7 +1144,7 @@ function App() {
                 <button className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={logout} type="button">Dil</button>
               </div>
             </div>
-            <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">{isLoading ? 'Duke ngarkuar...' : notice}</p>
+            <p role="status" className="app-notice rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">{isLoading ? 'Duke ngarkuar...' : notice}</p>
           </div>
         </header>
 
@@ -1516,8 +1516,15 @@ function InventoryTable({
           <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50" onClick={onExport} type="button"><Download size={16} />Eksporto</button>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left text-sm">
+      <div className="inventory-mobile-list md:hidden">
+        {inventory.map(item => <article className="inventory-mobile-card" key={item.id}>
+          <header><div>{canUpdateInventory ? <button onClick={() => onEditInventory(item)} type="button">{item.brand} {item.model}</button> : <strong>{item.brand} {item.model}</strong>}<code>{item.imei ?? 'Pa IMEI'}</code></div><strong className="whitespace-nowrap text-sm tabular-nums">{formatEuro(Number(item.selling_price))}</strong></header>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-slate-600">{[item.color, item.storage].filter(Boolean).join(' · ') || '—'}</span>{canAdjustInventory ? <select aria-label={`Statusi i ${item.brand} ${item.model}`} className="h-11 max-w-full rounded-md border border-slate-300 bg-white px-2 text-sm" disabled={item.status === 'sold' || item.status === 'exchanged_out'} onChange={event => onStatusChange(item.id, event.target.value)} value={item.status}><option value="in_stock">Në stok</option><option value="reserved">Rezervuar</option><option value="damaged">Dëmtuar</option><option value="returned">Kthyer</option>{(item.status === 'sold' || item.status === 'exchanged_out') && <option value={item.status}>{statusLabel(item.status)}</option>}</select> : <span className="ui-badge ui-badge-neutral">{statusLabel(item.status)}</span>}</div>
+          <details><summary>Shiko detajet</summary><dl><div><dt>Kosto</dt><dd>{formatEuro(Number(item.purchase_price))}</dd></div><div><dt>Çmimi</dt><dd>{formatEuro(Number(item.selling_price))}</dd></div><div><dt>Shitur për</dt><dd>{item.sold_price ? formatEuro(Number(item.sold_price)) : '—'}</dd></div><div><dt>Statusi</dt><dd>{statusLabel(item.status)}</dd></div></dl></details>
+        </article>)}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="inventory-table w-full min-w-[980px] text-left text-sm">
           <thead className="bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">IMEI</th>
