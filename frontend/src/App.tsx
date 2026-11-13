@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import Chart from 'react-apexcharts'
 import {
@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react'
 import './index.css'
+import './operations.css'
 import { IncomingPhones } from './IncomingPhones'
 import { emptyPhone } from './phoneForm'
 import type { IncomingPhone } from './phoneForm'
@@ -1148,7 +1149,7 @@ function App() {
           </div>
         </header>
 
-        <div className="space-y-6 p-4 lg:p-6">
+        <div className={`space-y-6 p-4 lg:p-6 ${activeView === 'Paneli' ? 'dashboard-workspace' : ''}`}>
           {activeView === 'Paneli' && (
             <>
               <Metrics metrics={metrics} />
@@ -1170,7 +1171,7 @@ function App() {
       </section>
 
       {modalMode === 'inventory' && (
-        <Modal title="Shto artikull të ri" onClose={() => { setModalMode(null); resetInventoryForm() }}>
+        <Modal notice={notice} title="Shto artikull të ri" onClose={() => { setModalMode(null); resetInventoryForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createInventoryItem}>
             {[
               ['brand', 'Brendi'],
@@ -1189,7 +1190,7 @@ function App() {
       )}
 
       {modalMode === 'editInventory' && (
-        <Modal title="Edito artikull" onClose={() => { setModalMode(null); resetInventoryForm() }}>
+        <Modal notice={notice} title="Edito artikull" onClose={() => { setModalMode(null); resetInventoryForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={updateInventoryItem}>
             <Field label="Brendi" value={inventoryForm.brand} onChange={(value) => setInventoryForm((form) => ({ ...form, brand: value }))} />
             <Field label="Modeli" value={inventoryForm.model} onChange={(value) => setInventoryForm((form) => ({ ...form, model: value }))} />
@@ -1219,7 +1220,7 @@ function App() {
       )}
 
       {modalMode === 'store' && (
-        <Modal title="Krijo dyqan të ri" onClose={() => setModalMode(null)}>
+        <Modal notice={notice} title="Krijo dyqan të ri" onClose={() => setModalMode(null)}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStore}>
             <Field label="Emri i dyqanit" value={storeForm.name} onChange={(value) => setStoreForm((form) => ({ ...form, name: value }))} />
             <Field label="Adresa" value={storeForm.address} onChange={(value) => setStoreForm((form) => ({ ...form, address: value }))} />
@@ -1233,7 +1234,7 @@ function App() {
       )}
 
       {modalMode === 'user' && (
-        <Modal title="Shto ose lidh përdorues" onClose={() => setModalMode(null)}>
+        <Modal notice={notice} title="Shto ose lidh përdorues" onClose={() => setModalMode(null)}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createUser}>
             <Field label="Emri" value={userForm.name} onChange={(value) => setUserForm((form) => ({ ...form, name: value }))} />
             <Field label="Email" value={userForm.email} onChange={(value) => setUserForm((form) => ({ ...form, email: value }))} />
@@ -1253,7 +1254,7 @@ function App() {
       )}
 
       {modalMode === 'editUser' && (
-        <Modal title="Edito përdorues" onClose={() => { setModalMode(null); setEditingUser(null); resetUserForm() }}>
+        <Modal notice={notice} title="Edito përdorues" onClose={() => { setModalMode(null); setEditingUser(null); resetUserForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={updateUser}>
             <Field label="Emri" value={userForm.name} onChange={(value) => setUserForm((form) => ({ ...form, name: value }))} />
             <Field label="Email" value={userForm.email} onChange={(value) => setUserForm((form) => ({ ...form, email: value }))} />
@@ -1280,8 +1281,8 @@ function App() {
       )}
 
       {modalMode === 'cash' && (
-        <Modal title="Lëvizje arke" onClose={() => setModalMode(null)}>
-          <form className="grid gap-3" onSubmit={createCashTransaction}>
+        <Modal notice={notice} title="Lëvizje arke" onClose={() => setModalMode(null)}>
+          <form className="cash-operation-form grid gap-3" onSubmit={createCashTransaction}>
             <label className="space-y-1 text-sm">
               <span className="font-medium text-slate-700">Tipi</span>
               <select className="h-10 w-full rounded-md border border-slate-300 px-3" onChange={(event) => setCashForm((form) => ({ ...form, type: event.target.value }))} value={cashForm.type}>
@@ -1298,8 +1299,8 @@ function App() {
       )}
 
       {(modalMode === 'sale' || modalMode === 'editSale') && (
-        <Modal title={modalMode === 'editSale' ? 'Edito shitje' : 'Regjistro shitje'} onClose={() => { setModalMode(null); resetSaleForms() }}>
-          <form className="grid gap-3" onSubmit={modalMode === 'editSale' ? updateSale : createSale}>
+        <Modal notice={notice} title={modalMode === 'editSale' ? 'Edito shitje' : 'Regjistro shitje'} onClose={() => { setModalMode(null); resetSaleForms() }}>
+          <form className="sale-operation-form grid gap-3" onSubmit={modalMode === 'editSale' ? updateSale : createSale}>
             {modalMode === 'sale' ? (
               <>
                 <label className="space-y-1 text-sm">
@@ -1332,7 +1333,7 @@ function App() {
                   <option value="other">Tjetër</option>
                 </select>
               </label>
-              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 sm:col-span-2">
                 <p className="font-medium">Arka përditësohet automatikisht</p>
                 <p className="text-xs">Në editim ruhet vetëm diferenca e çmimit.</p>
               </div>
@@ -1343,7 +1344,7 @@ function App() {
       )}
 
       {(modalMode === 'exchange' || modalMode === 'editExchange') && (
-        <Modal title={modalMode === 'editExchange' ? 'Edito ndërrim' : 'Regjistro ndërrim'} onClose={() => { setModalMode(null); resetExchangeForm() }}>
+        <Modal notice={notice} title={modalMode === 'editExchange' ? 'Edito ndërrim' : 'Regjistro ndërrim'} onClose={() => { setModalMode(null); resetExchangeForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={modalMode === 'editExchange' ? updateExchange : createExchange}>
             {modalMode === 'editExchange' && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:col-span-2">
@@ -1382,7 +1383,7 @@ function App() {
       )}
 
       {(modalMode === 'purchase' || modalMode === 'editPurchase') && (
-        <Modal title={modalMode === 'editPurchase' ? 'Edito blerje' : 'Regjistro blerje'} onClose={() => { setModalMode(null); resetPurchaseForm() }}>
+        <Modal notice={notice} title={modalMode === 'editPurchase' ? 'Edito blerje' : 'Regjistro blerje'} onClose={() => { setModalMode(null); resetPurchaseForm() }}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={modalMode === 'editPurchase' ? updateCustomerPurchase : createCustomerPurchase}>
             <Field label="Brendi hyrës" value={purchaseForm.incoming_brand} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_brand: value }))} />
             <Field label="Modeli hyrës" value={purchaseForm.incoming_model} onChange={(value) => setPurchaseForm((form) => ({ ...form, incoming_model: value }))} />
@@ -1420,46 +1421,31 @@ function LoginScreen({ form, isLoading, notice, onChange, onSubmit }: { form: { 
 }
 
 function Metrics({ metrics }: { metrics: Array<{ label: string; value: string; delta: string; icon: typeof Boxes }> }) {
-  return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric) => <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm" key={metric.label}><div className="flex items-center justify-between"><p className="text-sm text-slate-500">{metric.label}</p><metric.icon className="text-slate-400" size={18} /></div><div className="mt-3 flex items-end justify-between gap-3"><strong className="text-2xl font-semibold">{metric.value}</strong><span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">{metric.delta}</span></div></article>)}</section>
+  return <section className="dashboard-metrics" aria-label="Treguesit kryesorë">{metrics.map(metric => <article className="ui-card dashboard-metric" key={metric.label}>
+    <div className="dashboard-metric-heading"><p>{metric.label}</p><span className="dashboard-metric-icon"><metric.icon size={19} /></span></div>
+    <strong>{metric.value}</strong><p className="dashboard-metric-caption">{metric.delta}</p>
+  </article>)}</section>
 }
 
 function DailyCashSummary({ balance, cashIn, cashOut }: { balance: number; cashIn: number; cashOut: number }) {
   const net = cashIn - cashOut
-
-  return (
-    <section className="grid gap-3 md:grid-cols-3">
-      <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-500">Gjendja totale e arkës</p>
-        <strong className="mt-2 block text-2xl font-semibold">{formatEuro(balance)}</strong>
-      </article>
-      <article className="rounded-md border border-emerald-100 bg-emerald-50 p-4">
-        <p className="text-sm text-emerald-700">Hyrje cash sot</p>
-        <strong className="mt-2 block text-2xl font-semibold text-emerald-800">{formatEuro(cashIn)}</strong>
-      </article>
-      <article className="rounded-md border border-rose-100 bg-rose-50 p-4">
-        <p className="text-sm text-rose-700">Dalje cash sot</p>
-        <strong className="mt-2 block text-2xl font-semibold text-rose-800">{formatEuro(cashOut)}</strong>
-        <p className="mt-1 text-xs text-slate-500">Neto: {formatEuro(net)}</p>
-      </article>
-    </section>
-  )
+  return <section className="ui-card dashboard-cash" aria-label="Përmbledhja e arkës">
+    <div className="operations-list-heading"><div className="operations-heading-label"><Banknote size={18} /><h2>Arka sot</h2></div><span className="ui-hint">Neto: <strong className={net < 0 ? 'amount-out' : 'amount-in'}>{formatEuro(net)}</strong></span></div>
+    <div className="dashboard-cash-grid"><div><p>Gjendja totale e arkës</p><strong>{formatEuro(balance)}</strong></div><div><p><ArrowUpRight size={15} />Hyrje cash sot</p><strong className="amount-in">{formatEuro(cashIn)}</strong></div><div><p><ArrowDownLeft size={15} />Dalje cash sot</p><strong className="amount-out">{formatEuro(cashOut)}</strong></div></div>
+  </section>
 }
 
 function DashboardCharts({ transactions, weeklyCash }: { transactions: CashTransaction[]; weeklyCash: { labels: string[]; incoming: number[]; outgoing: number[] } }) {
   const options = { ...chartOptions, xaxis: { categories: weeklyCash.labels } }
-
-  return (
-    <section className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
-      <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">Cash 7 ditët e fundit</h2><p className="text-sm text-slate-500">Hyrjet dhe daljet nga shitjet, ndërrimet dhe arka</p></div><CircleDollarSign className="text-slate-400" size={20} /></div>
-        <Chart height={304} options={options} series={[{ name: 'Hyrje', data: weeklyCash.incoming }, { name: 'Dalje', data: weeklyCash.outgoing }]} type="area" />
-      </article>
-      <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-base font-semibold">Transaksionet e fundit</h2>
-        <div className="mt-4 space-y-3">{(transactions ?? []).slice(0, 5).map((transaction) => <div className="flex items-center justify-between gap-3 rounded-md border border-slate-100 p-3" key={transaction.id}><div className="flex items-center gap-3"><div className={`flex size-9 items-center justify-center rounded-md ${transaction.direction === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{transaction.direction === 'in' ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}</div><div><p className="text-sm font-medium">{cashTypeLabel(transaction.type)}</p><p className="text-xs text-slate-500">{new Date(transaction.created_at).toLocaleString()}</p></div></div><p className="text-sm font-semibold">{formatEuro(Number(transaction.amount))}</p></div>)}</div>
-      </article>
-    </section>
-  )
+  return <section className="dashboard-activity">
+    <article className="ui-card dashboard-chart"><div className="operations-list-heading"><div><h2>Cash 7 ditët e fundit</h2><p className="ui-hint">Hyrjet dhe daljet nga shitjet, ndërrimet dhe arka</p></div><CircleDollarSign size={21} className="text-slate-400" /></div>
+      <div className="dashboard-chart-canvas"><Chart height={280} options={options} series={[{ name: 'Hyrje', data: weeklyCash.incoming }, { name: 'Dalje', data: weeklyCash.outgoing }]} type="area" /></div>
+      <details className="dashboard-chart-values"><summary>Shiko vlerat ditore</summary><div className="operations-table-scroll"><table className="ui-data-table"><caption className="ui-sr-only">Vlerat e grafikut të arkës për shtatë ditët e fundit</caption><thead><tr><th scope="col">Dita</th><th scope="col" className="ui-number">Hyrje</th><th scope="col" className="ui-number">Dalje</th></tr></thead><tbody>{weeklyCash.labels.map((label, index) => <tr key={index}><td>{label}</td><td className="ui-number">{formatEuro(weeklyCash.incoming[index])}</td><td className="ui-number">{formatEuro(weeklyCash.outgoing[index])}</td></tr>)}</tbody></table></div></details>
+    </article>
+    <article className="ui-card dashboard-recent"><div className="operations-list-heading"><h2>Transaksionet e fundit</h2><span className="ui-hint">Arka</span></div><div className="dashboard-recent-list">{(transactions ?? []).slice(0, 5).map(transaction => <div className="dashboard-recent-row" key={transaction.id}>
+      <span className={`transaction-icon ${transaction.direction === 'in' ? 'transaction-icon-in' : 'transaction-icon-out'}`}>{transaction.direction === 'in' ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}</span><div><p>{cashTypeLabel(transaction.type)}</p><RecordDate value={transaction.created_at} /></div><strong className={transaction.direction === 'in' ? 'amount-in' : 'amount-out'}>{transaction.direction === 'in' ? '+' : '−'}{formatEuro(Number(transaction.amount))}</strong>
+    </div>)}</div>{!transactions.length && <EmptyRecords icon={Banknote} title="Ende pa transaksione" description="Lëvizjet e arkës do të shfaqen këtu." />}</article>
+  </section>
 }
 
 function InventoryTable({
@@ -1589,165 +1575,76 @@ function InventoryTable({
 }
 
 function SalesView({ canCreateSales, isSuperAdmin, meta, onDeleteSale, onEditSale, onOpenSale, onPageChange, onPerPageChange, perPage, sales, stockCount }: { canCreateSales: boolean; isSuperAdmin: boolean; meta: PaginationMeta; onDeleteSale: (sale: SaleApiRecord) => void; onEditSale: (sale: SaleApiRecord) => void; onOpenSale: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; sales: SaleApiRecord[]; stockCount: number }) {
-  return (
-    <section className="rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="text-base font-semibold">Shitjet</h2><p className="text-sm text-slate-500">{stockCount} artikuj të gatshëm për shitje.</p></div>
-        {canCreateSales && <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenSale} type="button"><ReceiptText size={16} />Regjistro shitje</button>}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">Fatura</th>
-              <th className="px-4 py-3 font-medium">Artikulli</th>
-              <th className="px-4 py-3 font-medium">Data</th>
-              <th className="px-4 py-3 font-medium">Pagesa</th>
-              <th className="px-4 py-3 text-right font-medium">Totali</th>
-              <th className="px-4 py-3 text-right font-medium">Fitimi</th>
-              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sales.map((sale) => (
-              <tr className="hover:bg-slate-50/70" key={sale.id}>
-                <td className="px-4 py-3"><p className="font-semibold text-slate-900">{sale.sale_number}</p><p className="text-xs text-slate-500">{sale.type === 'normal' ? 'Shitje normale' : sale.type}</p></td>
-                <td className="px-4 py-3">{saleItemDetails(sale)}</td>
-                <td className="px-4 py-3 text-slate-600">{new Date(sale.created_at).toLocaleString('sq-AL')}</td>
-                <td className="px-4 py-3"><span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{paymentLabel(sale.payment_method)}</span></td>
-                <td className="px-4 py-3 text-right font-semibold">{formatEuro(Number(sale.total))}</td>
-                <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatEuro(Number(sale.profit))}</td>
-                {isSuperAdmin && (
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditSale(sale)} />
-                      <ActionIconButton icon={Trash2} label="Fshi" onClick={() => onDeleteSale(sale)} tone="danger" />
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!sales.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka shitje të regjistruara.</p>}
+  return <section className="operations-workspace" aria-label="Shitjet e dyqanit">
+    <ViewHeading eyebrow="Dokumentet e dyqanit" title="Shitjet" description={`${stockCount} artikuj të gatshëm për shitje.`}>{canCreateSales && <button className="ui-button ui-button-primary" onClick={onOpenSale} type="button"><ReceiptText size={17} />Regjistro shitje</button>}</ViewHeading>
+    <div className="ui-card operations-records"><div className="operations-list-heading"><h3>Historiku i shitjeve</h3><span className="ui-hint">{meta.total} fatura</span></div>
+      <div className="operations-desktop-table operations-table-scroll"><table className="ui-data-table operations-data-table"><thead><tr><th scope="col">Fatura</th><th scope="col">Artikulli</th><th scope="col">Data</th><th scope="col">Pagesa</th><th scope="col" className="ui-number">Totali</th><th scope="col" className="ui-number">Fitimi</th>{isSuperAdmin && <th scope="col" className="ui-number">Veprime</th>}</tr></thead><tbody>{sales.map(sale => <tr key={sale.id}>
+        <td><strong className="record-document">{sale.sale_number}</strong><span className="record-secondary">{sale.type === 'normal' ? 'Shitje normale' : sale.type}</span></td><td>{saleItemDetails(sale)}</td><td><RecordDate value={sale.created_at} /></td><td><span className="ui-badge ui-badge-blue">{paymentLabel(sale.payment_method)}</span></td><td className="ui-number record-amount">{formatEuro(Number(sale.total))}</td><td className={`ui-number record-amount ${Number(sale.profit) < 0 ? 'amount-out' : 'amount-in'}`}>{formatEuro(Number(sale.profit))}</td>
+        {isSuperAdmin && <td><div className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={sale.sale_number} onClick={() => onEditSale(sale)} /><ActionIconButton icon={Trash2} label="Fshi" context={sale.sale_number} onClick={() => onDeleteSale(sale)} tone="danger" /></div></td>}
+      </tr>)}</tbody></table></div>
+      <div className="operations-mobile-cards">{sales.map(sale => <article className="operation-mobile-card" key={sale.id}><header><div><strong className="record-document">{sale.sale_number}</strong><RecordDate value={sale.created_at} /></div><strong className="mobile-record-amount">{formatEuro(Number(sale.total))}</strong></header><div className="mobile-record-item">{saleItemDetails(sale)}</div><dl className="mobile-record-details"><div><dt>Lloji</dt><dd>{sale.type === 'normal' ? 'Shitje normale' : sale.type}</dd></div><div><dt>Pagesa</dt><dd><span className="ui-badge ui-badge-blue">{paymentLabel(sale.payment_method)}</span></dd></div><div><dt>Fitimi</dt><dd className={Number(sale.profit) < 0 ? 'amount-out' : 'amount-in'}>{formatEuro(Number(sale.profit))}</dd></div></dl>{isSuperAdmin && <footer className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={sale.sale_number} onClick={() => onEditSale(sale)} /><ActionIconButton icon={Trash2} label="Fshi" context={sale.sale_number} onClick={() => onDeleteSale(sale)} tone="danger" /></footer>}</article>)}</div>
+      {!sales.length && <EmptyRecords icon={ReceiptText} title="Ende nuk ka shitje të regjistruara." description="Shitjet e regjistruara do të shfaqen në këtë listë." />}
       <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
-    </section>
-  )
+    </div>
+  </section>
 }
 
-
 function ExchangeView({ canCreateSales, exchanges, isSuperAdmin, meta, onEditExchange, onOpenExchange, onPageChange, onPerPageChange, perPage, stockCount }: { canCreateSales: boolean; exchanges: ExchangeApiRecord[]; isSuperAdmin: boolean; meta: PaginationMeta; onEditExchange: (exchange: ExchangeApiRecord) => void; onOpenExchange: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; stockCount: number }) {
-  return (
-    <section className="rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="text-base font-semibold">Ndërrimet</h2><p className="text-sm text-slate-500">{stockCount} telefona në stok · çdo rresht tregon çka doli dhe çka hyri.</p></div>
-        {canCreateSales && <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenExchange} type="button"><Repeat2 size={16} />Regjistro ndërrim</button>}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">Data</th>
-              <th className="px-4 py-3 font-medium">Doli nga dyqani</th>
-              <th className="px-4 py-3 font-medium">Hyri nga klienti</th>
-              <th className="px-4 py-3 font-medium">Cash</th>
-              <th className="px-4 py-3 text-right font-medium">Fitim/Humbje</th>
-              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {exchanges.map((exchange) => (
-              <tr className="align-top hover:bg-slate-50/70" key={exchange.id}>
-                <td className="px-4 py-3 text-slate-600">{new Date(exchange.created_at).toLocaleString('sq-AL')}</td>
-                <td className="px-4 py-3">{inventoryItemLabel(exchange.outgoing_item)}</td>
-                <td className="px-4 py-3"><div className="space-y-2">{exchangeIncomingItems(exchange).map((item, index) => <div className="rounded-md bg-slate-50 px-2 py-1" key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></td>
-                <td className="px-4 py-3">{exchangeCashLabel(exchange)}</td>
-                <td className={`px-4 py-3 text-right font-semibold ${exchangeProfitLoss(exchange) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatEuro(exchangeProfitLoss(exchange))}</td>
-                {isSuperAdmin && <td className="px-4 py-3 text-right"><ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditExchange(exchange)} /></td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!exchanges.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka ndërrime të regjistruara.</p>}
+  return <section className="operations-workspace" aria-label="Ndërrimet e dyqanit">
+    <ViewHeading eyebrow="Hyrjet dhe daljet" title="Ndërrimet" description={`${stockCount} telefona në stok · çfarë doli dhe çfarë hyri në çdo ndërrim.`}>{canCreateSales && <button className="ui-button ui-button-primary" onClick={onOpenExchange} type="button"><Repeat2 size={17} />Regjistro ndërrim</button>}</ViewHeading>
+    <div className="ui-card operations-records"><div className="operations-list-heading"><h3>Historiku i ndërrimeve</h3><span className="ui-hint">{meta.total} ndërrime</span></div>
+      <div className="operations-desktop-table operations-table-scroll"><table className="ui-data-table operations-data-table"><thead><tr><th scope="col">Data</th><th scope="col">Doli nga dyqani</th><th scope="col">Hyri nga klienti</th><th scope="col">Cash</th><th scope="col" className="ui-number">Fitim/Humbje</th>{isSuperAdmin && <th scope="col" className="ui-number">Veprime</th>}</tr></thead><tbody>{exchanges.map(exchange => <tr key={exchange.id}>
+        <td><RecordDate value={exchange.created_at} /></td><td><div className="exchange-outgoing-item">{inventoryItemLabel(exchange.outgoing_item)}</div></td><td><div className="exchange-incoming-list">{exchangeIncomingItems(exchange).map((item, index) => <div key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></td><td>{exchangeCashLabel(exchange)}</td><td className={`ui-number record-amount ${exchangeProfitLoss(exchange) >= 0 ? 'amount-in' : 'amount-out'}`}>{formatEuro(exchangeProfitLoss(exchange))}</td>{isSuperAdmin && <td><div className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={`ndërrimin ${exchange.id}`} onClick={() => onEditExchange(exchange)} /></div></td>}
+      </tr>)}</tbody></table></div>
+      <div className="operations-mobile-cards">{exchanges.map(exchange => <article className="operation-mobile-card" key={exchange.id}><header><div><strong className="record-document">Ndërrimi #{exchange.id}</strong><RecordDate value={exchange.created_at} /></div><span className="ui-badge ui-badge-blue"><Repeat2 size={13} />Ndërrim</span></header><div className="exchange-mobile-flow"><div><span className="exchange-flow-label"><ArrowUpRight size={14} />Doli nga dyqani</span>{inventoryItemLabel(exchange.outgoing_item)}</div><div><span className="exchange-flow-label"><ArrowDownLeft size={14} />Hyri nga klienti</span><div className="exchange-incoming-list">{exchangeIncomingItems(exchange).map((item, index) => <div key={`${item?.id ?? index}-${index}`}>{inventoryItemLabel(item)}</div>)}</div></div></div><dl className="mobile-record-details"><div><dt>Cash</dt><dd>{exchangeCashLabel(exchange)}</dd></div><div><dt>Fitim/Humbje</dt><dd className={exchangeProfitLoss(exchange) >= 0 ? 'amount-in' : 'amount-out'}>{formatEuro(exchangeProfitLoss(exchange))}</dd></div></dl>{isSuperAdmin && <footer className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={`ndërrimin ${exchange.id}`} onClick={() => onEditExchange(exchange)} /></footer>}</article>)}</div>
+      {!exchanges.length && <EmptyRecords icon={Repeat2} title="Ende nuk ka ndërrime të regjistruara." description="Telefonat hyrës dhe dalës do të shfaqen bashkë në çdo ndërrim." />}
       <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
-    </section>
-  )
+    </div>
+  </section>
 }
 
 function PurchasesView({ canCreatePurchases, isSuperAdmin, meta, onDeletePurchase, onEditPurchase, onOpenPurchase, onPageChange, onPerPageChange, perPage, purchases }: { canCreatePurchases: boolean; isSuperAdmin: boolean; meta: PaginationMeta; onDeletePurchase: (purchase: PurchaseApiRecord) => void; onEditPurchase: (purchase: PurchaseApiRecord) => void; onOpenPurchase: () => void; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number; purchases: PurchaseApiRecord[] }) {
-  return (
-    <section className="rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="text-base font-semibold">Blerjet</h2><p className="text-sm text-slate-500">Telefona që klientët ia shesin dyqanit. Hyn stok, del cash.</p></div>
-        {canCreatePurchases && <button className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onClick={onOpenPurchase} type="button"><HandCoins size={16} />Regjistro blerje</button>}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">Dokumenti</th>
-              <th className="px-4 py-3 font-medium">Telefoni</th>
-              <th className="px-4 py-3 font-medium">Data</th>
-              <th className="px-4 py-3 text-right font-medium">Paguar</th>
-              <th className="px-4 py-3 text-right font-medium">Çmimi i synuar</th>
-              {isSuperAdmin && <th className="px-4 py-3 text-right font-medium">Veprime</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {purchases.map((purchase) => (
-              <tr className="hover:bg-slate-50/70" key={purchase.id}>
-                <td className="px-4 py-3"><p className="font-semibold text-slate-900">{purchase.purchase_number}</p><p className="text-xs text-slate-500">Blerje nga klienti</p></td>
-                <td className="px-4 py-3">{inventoryItemLabel(purchase.item)}</td>
-                <td className="px-4 py-3 text-slate-600">{new Date(purchase.created_at).toLocaleString('sq-AL')}</td>
-                <td className="px-4 py-3 text-right font-semibold text-rose-700">{formatEuro(Number(purchase.purchase_price))}</td>
-                <td className="px-4 py-3 text-right font-semibold">{formatEuro(Number(purchase.expected_selling_price))}</td>
-                {isSuperAdmin && (
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <ActionIconButton icon={Pencil} label="Edito" onClick={() => onEditPurchase(purchase)} />
-                      <ActionIconButton icon={Trash2} label="Fshi" onClick={() => onDeletePurchase(purchase)} tone="danger" />
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!purchases.length && <p className="px-4 py-6 text-sm text-slate-500">Ende nuk ka blerje të regjistruara.</p>}
+  return <section className="operations-workspace" aria-label="Blerjet e dyqanit">
+    <ViewHeading eyebrow="Telefona nga klientët" title="Blerjet" description="Telefona që klientët ia shesin dyqanit. Hyn stok, del cash.">{canCreatePurchases && <button className="ui-button ui-button-primary" onClick={onOpenPurchase} type="button"><HandCoins size={17} />Regjistro blerje</button>}</ViewHeading>
+    <div className="ui-card operations-records"><div className="operations-list-heading"><h3>Historiku i blerjeve</h3><span className="ui-hint">{meta.total} dokumente</span></div>
+      <div className="operations-desktop-table operations-table-scroll"><table className="ui-data-table operations-data-table"><thead><tr><th scope="col">Dokumenti</th><th scope="col">Telefoni</th><th scope="col">Data</th><th scope="col" className="ui-number">Paguar</th><th scope="col" className="ui-number">Çmimi i synuar</th>{isSuperAdmin && <th scope="col" className="ui-number">Veprime</th>}</tr></thead><tbody>{purchases.map(purchase => <tr key={purchase.id}>
+        <td><strong className="record-document">{purchase.purchase_number}</strong><span className="record-secondary">Blerje nga klienti</span></td><td>{inventoryItemLabel(purchase.item)}</td><td><RecordDate value={purchase.created_at} /></td><td className="ui-number record-amount amount-out">{formatEuro(Number(purchase.purchase_price))}</td><td className="ui-number record-amount">{formatEuro(Number(purchase.expected_selling_price))}</td>{isSuperAdmin && <td><div className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={purchase.purchase_number} onClick={() => onEditPurchase(purchase)} /><ActionIconButton icon={Trash2} label="Fshi" context={purchase.purchase_number} onClick={() => onDeletePurchase(purchase)} tone="danger" /></div></td>}
+      </tr>)}</tbody></table></div>
+      <div className="operations-mobile-cards">{purchases.map(purchase => <article className="operation-mobile-card" key={purchase.id}><header><div><strong className="record-document">{purchase.purchase_number}</strong><RecordDate value={purchase.created_at} /></div><strong className="mobile-record-amount amount-out">{formatEuro(Number(purchase.purchase_price))}</strong></header><div className="mobile-record-item">{inventoryItemLabel(purchase.item)}</div><dl className="mobile-record-details"><div><dt>Paguar</dt><dd>{formatEuro(Number(purchase.purchase_price))}</dd></div><div><dt>Çmimi i synuar</dt><dd>{formatEuro(Number(purchase.expected_selling_price))}</dd></div></dl>{isSuperAdmin && <footer className="record-actions"><ActionIconButton icon={Pencil} label="Edito" context={purchase.purchase_number} onClick={() => onEditPurchase(purchase)} /><ActionIconButton icon={Trash2} label="Fshi" context={purchase.purchase_number} onClick={() => onDeletePurchase(purchase)} tone="danger" /></footer>}</article>)}</div>
+      {!purchases.length && <EmptyRecords icon={HandCoins} title="Ende nuk ka blerje të regjistruara." description="Blerjet nga klientët do të shfaqen në këtë listë." />}
       <TablePagination meta={meta} onPageChange={onPageChange} onPerPageChange={onPerPageChange} perPage={perPage} />
-    </section>
-  )
+    </div>
+  </section>
 }
 
 function CashView({ canAdjustCash, cash, onOpenCash }: { canAdjustCash: boolean; cash: CashState; onOpenCash: (type: string) => void }) {
-  return <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold">Arka</h2><p className="text-sm text-slate-500">Gjendja aktuale: {formatEuro(Number(cash.register?.current_balance ?? 0))}</p></div>{canAdjustCash && <div className="flex gap-2"><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('deposit')} type="button">Depozitim</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('withdraw')} type="button">Tërheqje</button><button className="rounded-md border px-3 py-2 text-sm" onClick={() => onOpenCash('expense')} type="button">Shpenzim</button></div>}</div></section>
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(20)
+  const transactions = cash.transactions?.data ?? []
+  const lastPage = Math.max(1, Math.ceil(transactions.length / perPage))
+  const currentPage = Math.min(page, lastPage)
+  const rows = transactions.slice((currentPage - 1) * perPage, currentPage * perPage)
+  const meta = { current_page: currentPage, last_page: lastPage, per_page: perPage, total: transactions.length, from: transactions.length ? (currentPage - 1) * perPage + 1 : null, to: transactions.length ? Math.min(currentPage * perPage, transactions.length) : null }
+  return <section className="operations-workspace" aria-label="Arka e dyqanit">
+    <ViewHeading eyebrow="Lëvizjet monetare" title="Arka" description="Gjendja dhe lëvizjet e arkës së dyqanit." />
+    <div className="ui-card cash-balance-card"><div><span className="dashboard-metric-icon"><Banknote size={21} /></span><p className="ui-hint">Gjendja aktuale</p><strong>{formatEuro(Number(cash.register?.current_balance ?? 0))}</strong></div>{canAdjustCash && <div className="cash-actions"><button className="ui-button ui-button-primary" onClick={() => onOpenCash('deposit')} type="button"><ArrowUpRight size={17} />Depozitim</button><button className="ui-button" onClick={() => onOpenCash('withdraw')} type="button"><ArrowDownLeft size={17} />Tërheqje</button><button className="ui-button" onClick={() => onOpenCash('expense')} type="button"><ReceiptText size={17} />Shpenzim</button></div>}</div>
+    <div className="ui-card operations-records"><div className="operations-list-heading"><h3>Lëvizjet e arkës</h3><span className="ui-hint">{transactions.length} transaksione të ngarkuara</span></div>
+      <div className="operations-desktop-table operations-table-scroll"><table className="ui-data-table cash-ledger-table"><thead><tr><th scope="col">Lëvizja</th><th scope="col">Data</th><th scope="col">Drejtimi</th><th scope="col" className="ui-number">Shuma</th></tr></thead><tbody>{rows.map(transaction => <tr key={transaction.id}><td><span className="cash-transaction-label"><span className={`transaction-icon ${transaction.direction === 'in' ? 'transaction-icon-in' : 'transaction-icon-out'}`}>{transaction.direction === 'in' ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}</span><strong>{cashTypeLabel(transaction.type)}</strong></span></td><td><RecordDate value={transaction.created_at} /></td><td><span className={`ui-badge ${transaction.direction === 'in' ? 'ui-badge-success' : 'ui-badge-error'}`}>{transaction.direction === 'in' ? 'Hyrje' : 'Dalje'}</span></td><td className={`ui-number record-amount ${transaction.direction === 'in' ? 'amount-in' : 'amount-out'}`}>{transaction.direction === 'in' ? '+' : '−'}{formatEuro(Number(transaction.amount))}</td></tr>)}</tbody></table></div>
+      <div className="operations-mobile-cards">{rows.map(transaction => <article className="operation-mobile-card" key={transaction.id}><header><div><strong className="record-document">{cashTypeLabel(transaction.type)}</strong><RecordDate value={transaction.created_at} /></div><strong className={`mobile-record-amount ${transaction.direction === 'in' ? 'amount-in' : 'amount-out'}`}>{transaction.direction === 'in' ? '+' : '−'}{formatEuro(Number(transaction.amount))}</strong></header><span className={`ui-badge ${transaction.direction === 'in' ? 'ui-badge-success' : 'ui-badge-error'}`}>{transaction.direction === 'in' ? 'Hyrje' : 'Dalje'}</span></article>)}</div>
+      {!transactions.length && <EmptyRecords icon={Banknote} title="Ende pa lëvizje në arkë" description="Transaksionet e ngarkuara do të shfaqen këtu." />}
+      <TablePagination meta={meta} onPageChange={setPage} onPerPageChange={value => { setPerPage(value); setPage(1) }} perPage={perPage} />
+    </div>
+  </section>
 }
 
 function TablePagination({ meta, onPageChange, onPerPageChange, perPage }: { meta: PaginationMeta; onPageChange: (page: number) => void; onPerPageChange: (perPage: number) => void; perPage: number }) {
   const canGoBack = meta.current_page > 1
   const canGoForward = meta.current_page < meta.last_page
-
-  return (
-    <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-sm text-slate-500">Faqja {meta.current_page} / {meta.last_page} · {meta.total} rezultate</p>
-      <div className="flex flex-wrap gap-2 sm:justify-end">
-        <select className="h-10 rounded-md border border-slate-300 px-3 text-sm" onChange={(event) => onPerPageChange(Number(event.target.value))} value={perPage}>
-          <option value={10}>10 / faqe</option>
-          <option value={20}>20 / faqe</option>
-          <option value={50}>50 / faqe</option>
-          <option value={100}>100 / faqe</option>
-        </select>
-        <PaginationButtons canGoBack={canGoBack} canGoForward={canGoForward} currentPage={meta.current_page} lastPage={meta.last_page} onPageChange={onPageChange} />
-      </div>
-    </div>
-  )
+  return <div className="ui-pagination operations-pagination"><span>Faqja <strong>{meta.current_page}</strong> nga {meta.last_page} · {meta.total} rezultate</span><div className="operations-pagination-controls"><label><span className="ui-sr-only">Rezultate për faqe</span><select className="ui-input pagination-per-page" onChange={event => onPerPageChange(Number(event.target.value))} value={perPage}><option value={10}>10 / faqe</option><option value={20}>20 / faqe</option><option value={50}>50 / faqe</option><option value={100}>100 / faqe</option></select></label><PaginationButtons canGoBack={canGoBack} canGoForward={canGoForward} currentPage={meta.current_page} lastPage={meta.last_page} onPageChange={onPageChange} /></div></div>
 }
 
 function PaginationButtons({ canGoBack, canGoForward, currentPage, lastPage, onPageChange }: { canGoBack: boolean; canGoForward: boolean; currentPage: number; lastPage: number; onPageChange: (page: number) => void }) {
-  const buttonClass = 'h-10 rounded-md border border-slate-300 px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50'
+  const buttonClass = 'ui-button'
 
   return (
     <>
@@ -1767,26 +1664,31 @@ function InfoPanel({ text, title }: { text: string; title: string }) {
   return <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><h2 className="text-base font-semibold">{title}</h2><p className="mt-1 text-sm text-slate-500">{text}</p></section>
 }
 
-function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
-  return <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/40 p-4"><div className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-md bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><h2 className="text-base font-semibold">{title}</h2><button className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button"><X size={18} /></button></div><div className="max-h-[calc(92vh-57px)] overflow-y-auto p-4">{children}</div></div></div>
+function Modal({ children, onClose, title, notice }: { children: React.ReactNode; onClose: () => void; title: string; notice?: string }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  const [submitted, setSubmitted] = useState(false)
+  useEffect(() => {
+    const dialog = ref.current
+    dialog?.showModal()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { dialog?.close(); document.body.style.overflow = previousOverflow }
+  }, [])
+  return <dialog ref={ref} className="app-modal-overlay" aria-labelledby="operation-modal-title" onCancel={event => event.preventDefault()}><div className="app-modal max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-md bg-white shadow-xl"><div className="app-modal-heading"><h2 id="operation-modal-title">{title}</h2><button className="ui-icon-button" aria-label="Mbyll formularin" onClick={onClose} type="button"><X size={18} /></button></div>{submitted && notice && <div className="app-modal-feedback" role="status">{notice}</div>}<div className="app-modal-body max-h-[calc(92vh-57px)] overflow-y-auto p-4" onSubmitCapture={() => setSubmitted(true)}>{children}</div></div></dialog>
 }
 
-function ActionIconButton({ icon: Icon, label, onClick, tone = 'neutral' }: { icon: typeof Pencil; label: string; onClick: () => void; tone?: 'neutral' | 'danger' }) {
-  const className = tone === 'danger'
-    ? 'inline-flex h-9 items-center gap-1 rounded-md border border-rose-200 px-2 text-xs font-medium text-rose-700 hover:bg-rose-50'
-    : 'inline-flex h-9 items-center gap-1 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-700 hover:bg-slate-50'
-
-  return <button className={className} onClick={onClick} type="button"><Icon size={14} />{label}</button>
+function ActionIconButton({ icon: Icon, label, context, onClick, tone = 'neutral' }: { icon: typeof Pencil; label: string; context?: string; onClick: () => void; tone?: 'neutral' | 'danger' }) {
+  return <button className={`ui-button ${tone === 'danger' ? 'ui-button-danger' : ''}`} aria-label={context ? `${label} ${context}` : label} onClick={onClick} type="button"><Icon size={15} />{label}</button>
 }
 
 function Field({ label, onChange, type = 'text', value }: { label: string; onChange: (value: string) => void; type?: string; value: string }) {
   const optionalLabels = ['IMEI', 'IMEI 2', 'Shënim', 'Ngjyra', 'Ngjyra 2', 'Memoria', 'Memoria 2', 'Data e hyrjes', 'Vlera e telefonit që del', 'Emri', 'Fjalëkalimi', 'Adresa', 'Telefoni', 'Email i dyqanit', 'Çmimi i blerjes', 'Çmimi i shitjes', 'Vlera e blerjes hyrëse', 'Vlera e blerjes hyrëse 2', 'Çmimi i shitjes hyrëse', 'Çmimi i shitjes hyrëse 2']
 
-  return <label className="space-y-1 text-sm"><span className="font-medium text-slate-700">{label}</span><input className="h-10 w-full rounded-md border border-slate-300 px-3 outline-none focus:border-blue-600" onChange={(event) => onChange(event.target.value)} required={!optionalLabels.includes(label)} type={type} value={value} /></label>
+  return <label className="ui-field"><span>{label}</span><input className="ui-input" onChange={(event) => onChange(event.target.value)} required={!optionalLabels.includes(label)} type={type} value={value} /></label>
 }
 
 function SubmitRow({ onCancel, submitLabel }: { onCancel: () => void; submitLabel: string }) {
-  return <div className="flex justify-end gap-2 border-t border-slate-200 pt-3 sm:col-span-2"><button className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50" onClick={onCancel} type="button">Anulo</button><button className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">{submitLabel}</button></div>
+  return <div className="ui-form-footer operation-form-footer sm:col-span-2"><button className="ui-button" onClick={onCancel} type="button">Anulo</button><button className="ui-button ui-button-primary" type="submit">{submitLabel}</button></div>
 }
 
 function statusLabel(status: string) {
@@ -1979,6 +1881,21 @@ function sumCashForDate(transactions: CashTransaction[], date: Date, direction: 
 
     return sameDay && transaction.direction === direction ? total + Number(transaction.amount) : total
   }, 0)
+}
+
+
+function ViewHeading({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children?: React.ReactNode }) {
+  return <header className="workspace-heading"><div><p className="ui-eyebrow">{eyebrow}</p><h2>{title}</h2><p className="ui-hint">{description}</p></div>{children}</header>
+}
+
+function EmptyRecords({ icon: Icon, title, description }: { icon: typeof Boxes; title: string; description: string }) {
+  return <div className="ui-empty"><span className="ui-empty-icon"><Icon size={24} /></span><h3>{title}</h3><p>{description}</p></div>
+}
+
+function RecordDate({ value }: { value: string }) {
+  const date = new Date(value)
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return <time className="record-date" dateTime={value}><span>{pad(date.getDate())}.{pad(date.getMonth() + 1)}.{date.getFullYear()}</span><span>{pad(date.getHours())}:{pad(date.getMinutes())}</span></time>
 }
 
 export default App
