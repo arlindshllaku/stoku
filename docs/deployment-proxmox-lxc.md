@@ -71,6 +71,22 @@ SANCTUM_STATEFUL_DOMAINS=app.example.com
 SESSION_DOMAIN=.example.com
 ```
 
+## Report runtime memory
+
+The backend image sets PHP `memory_limit=512M` for HTTP exports, queue workers
+and scheduler child processes. Rebuild and recreate `backend`, `queue` and
+`scheduler` after changing `backend/docker/php-reports.ini`; restarting an old
+image does not load the new configuration.
+
+PDF file size and PHP memory usage are different measurements: an 850-row stock
+PDF was about 1 MB while Dompdf used about 306 MB of peak PHP memory to lay it
+out. The 512 MB limit is per PHP process, so allow capacity for concurrent jobs.
+
+Reports are generated as byte strings and sent with `attachData`; the application
+does not save completed PDF/XLSX reports to the storage volume. Keep that path
+in memory rather than adding an archive of generated attachments. Existing
+uploads, font caches, logs and backups must not be removed as report cleanup.
+
 ## Backups
 
 Manual backup:

@@ -31,6 +31,7 @@ RUN install-php-extensions \
 COPY --from=vendor /app /app
 COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY docker/entrypoint.sh /usr/local/bin/stoku-entrypoint
+COPY docker/php-reports.ini /usr/local/etc/php/conf.d/zz-stoku-reports.ini
 RUN chmod +x /usr/local/bin/stoku-entrypoint \
     && chown -R www-data:www-data /app/storage /app/bootstrap
 
