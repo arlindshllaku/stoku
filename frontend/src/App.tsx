@@ -1505,6 +1505,7 @@ function InventoryTable({
       <div className="inventory-mobile-list md:hidden">
         {inventory.map(item => <article className="inventory-mobile-card" key={item.id}>
           <header><div>{canUpdateInventory ? <button onClick={() => onEditInventory(item)} type="button">{item.brand} {item.model}</button> : <strong>{item.brand} {item.model}</strong>}<code>{item.imei ?? 'Pa IMEI'}</code></div><strong className="whitespace-nowrap text-sm tabular-nums">{formatEuro(Number(item.selling_price))}</strong></header>
+          <InventoryEntryDate value={item.date_added} />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-slate-600">{[item.color, item.storage].filter(Boolean).join(' · ') || '—'}</span>{canAdjustInventory ? <select aria-label={`Statusi i ${item.brand} ${item.model}`} className="h-11 max-w-full rounded-md border border-slate-300 bg-white px-2 text-sm" disabled={item.status === 'sold' || item.status === 'exchanged_out'} onChange={event => onStatusChange(item.id, event.target.value)} value={item.status}><option value="in_stock">Në stok</option><option value="reserved">Rezervuar</option><option value="damaged">Dëmtuar</option><option value="returned">Kthyer</option>{(item.status === 'sold' || item.status === 'exchanged_out') && <option value={item.status}>{statusLabel(item.status)}</option>}</select> : <span className="ui-badge ui-badge-neutral">{statusLabel(item.status)}</span>}</div>
           <details><summary>Shiko detajet</summary><dl><div><dt>Kosto</dt><dd>{formatEuro(Number(item.purchase_price))}</dd></div><div><dt>Çmimi</dt><dd>{formatEuro(Number(item.selling_price))}</dd></div><div><dt>Shitur për</dt><dd>{item.sold_price ? formatEuro(Number(item.sold_price)) : '—'}</dd></div><div><dt>Statusi</dt><dd>{statusLabel(item.status)}</dd></div></dl></details>
         </article>)}
@@ -1533,6 +1534,7 @@ function InventoryTable({
                   ) : (
                     <span className="font-semibold text-slate-900">{item.brand} {item.model}</span>
                   )}
+                  <InventoryEntryDate value={item.date_added} />
                 </td>
                 <td className="px-4 py-3">{item.color ?? '-'}</td>
                 <td className="px-4 py-3">{item.storage ?? '-'}</td>
@@ -1883,6 +1885,14 @@ function sumCashForDate(transactions: CashTransaction[], date: Date, direction: 
   }, 0)
 }
 
+
+function InventoryEntryDate({ value }: { value?: string | null }) {
+  // date_added is a calendar date; converting it through a timezone can move it
+  // to the previous day. Keep the date stored by the inventory service.
+  const calendarDate = value?.slice(0, 10)
+  const parts = calendarDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return <p className="inventory-entry-date"><span>Hyrja:</span>{parts ? <time dateTime={calendarDate}>{parts[3]}.{parts[2]}.{parts[1]}</time> : <span>Pa datë hyrjeje</span>}</p>
+}
 
 function ViewHeading({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children?: React.ReactNode }) {
   return <header className="workspace-heading"><div><p className="ui-eyebrow">{eyebrow}</p><h2>{title}</h2><p className="ui-hint">{description}</p></div>{children}</header>
