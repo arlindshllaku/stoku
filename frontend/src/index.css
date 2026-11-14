@@ -60,6 +60,7 @@ button:disabled { cursor: not-allowed; }
 .inventory-mobile-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .inventory-mobile-card header button { min-height: 44px; text-align: left; color: var(--ui-primary); font-weight: 600; }
 .inventory-mobile-card code { display: block; margin-top: 3px; font-size: 12px; color: var(--ui-muted); user-select: all; overflow-wrap: anywhere; }
+.inventory-entry-date { display: flex; align-items: baseline; gap: 5px; margin-top: 6px; color: var(--ui-muted); font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
 .inventory-mobile-card details { margin-top: 8px; }
 .inventory-mobile-card summary { display: flex; align-items: center; min-height: 44px; color: var(--ui-primary); font-size: 13px; cursor: pointer; }
 .inventory-mobile-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; background: var(--ui-background); border-radius: 8px; }
